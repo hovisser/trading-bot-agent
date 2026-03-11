@@ -149,6 +149,14 @@ function buildBaseAsset(marketKey: 'BTCUSD' | 'ETHUSD'): string {
   return marketKey === 'BTCUSD' ? 'BTC' : 'ETH';
 }
 
+function getPhaseOnePreferredSymbol(marketKey: 'BTCUSD' | 'ETHUSD'): string {
+  if (marketKey === 'BTCUSD') {
+    return 'PF_XBTUSD';
+  }
+
+  return 'PF_ETHUSD';
+}
+
 export async function resolvePrimaryMarkets(
   input: ResolvePrimaryMarketsInput,
 ): Promise<KrakenMarket[]> {
@@ -216,6 +224,16 @@ export async function resolvePrimaryMarkets(
       throw new Error(
         `Could not resolve any sane Kraken futures contract for ${wanted}`,
       );
+    }
+
+    const preferredSymbol = getPhaseOnePreferredSymbol(wanted);
+    const exactPreferred = candidates.find(
+      (candidate) => candidate.symbol.toUpperCase() === preferredSymbol,
+    );
+
+    if (exactPreferred) {
+      resolved.push(exactPreferred);
+      continue;
     }
 
     candidates.sort((a, b) => {

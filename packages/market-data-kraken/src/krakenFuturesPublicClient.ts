@@ -46,24 +46,17 @@ export class KrakenFuturesPublicClient extends EventEmitter {
       return;
     }
 
-    /*this.ws.send(
+    for (const symbol of this.options.symbols) {
+      this.emit('status', `subscribing trade feed for ${symbol}`);
+    }
+
+    this.ws.send(
       JSON.stringify({
         event: 'subscribe',
         feed: 'trade',
-        product_ids: ['PF_XBTUSD'],
+        product_ids: this.options.symbols,
       }),
-    );*/
-    for (const symbol of this.options.symbols) {
-      this.emit('status', `subscribing trade feed for ${symbol}`);
-
-      this.ws.send(
-        JSON.stringify({
-          event: 'subscribe',
-          feed: 'trade',
-          product_ids: [symbol],
-        }),
-      );
-    }
+    );
   }
 
   private handleMessage(message: any): void {
@@ -94,7 +87,6 @@ export class KrakenFuturesPublicClient extends EventEmitter {
 
     if (feed === 'trade') {
       this.handleTradeFeedMessage(message);
-      return;
     }
   }
 
@@ -131,8 +123,15 @@ export class KrakenFuturesPublicClient extends EventEmitter {
         trade.timestamp,
       );
     }
+    const firstTrade = message.trades[0];
+    const lastTrade = message.trades[message.trades.length - 1];
 
+    this.emit(
+      'status',
+      `snapshot_range:${symbol}:first=${JSON.stringify(firstTrade)}:last=${JSON.stringify(lastTrade)}`,
+    );
     this.flushClosedCandles();
+    this.emit('status', `snapshot_complete:${symbol}`);
   }
 
   private handleTradeFeedMessage(message: any): void {
@@ -212,7 +211,8 @@ export class KrakenFuturesPublicClient extends EventEmitter {
   }
 
   private flushClosedCandles(): void {
-    const closedCandles = this.aggregator.markClosedCandles(Date.now());
+    const now = Date.now();
+    const closedCandles = this.aggregator.markClosedCandles(now);
 
     for (const closed of closedCandles) {
       this.emit('candle', closed);
