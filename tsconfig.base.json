@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "declaration": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@trading-bot/shared-types": ["packages/shared-types/src/index.ts"],
+      "@trading-bot/strategy-schemas": ["packages/strategy-schemas/src/index.ts"],
+      "@trading-bot/market-data-kraken": ["packages/market-data-kraken/src/index.ts"]
+    }
+  }
+}

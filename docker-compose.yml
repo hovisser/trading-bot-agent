@@ -1,0 +1,16 @@
+services:
+  trader-runtime:
+    build:
+      context: .
+      dockerfile: Dockerfile.trader
+    container_name: trading-bot-runtime
+    working_dir: /app
+    command: npm run dev
+    volumes:
+      - ./:/app
+      - /app/node_modules
+    environment:
+      NODE_ENV: development
+      KRAKEN_FUTURES_REST_URL: https://futures.kraken.com/derivatives/api/v3
+      KRAKEN_FUTURES_WS_URL: wss://futures.kraken.com/ws/v1
+    restart: unless-stopped

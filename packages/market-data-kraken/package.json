@@ -1,0 +1,17 @@
+{
+  "name": "@trading-bot/market-data-kraken",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@trading-bot/shared-types": "*",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
+  }
+}

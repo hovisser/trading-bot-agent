@@ -1,0 +1,13 @@
+{
+  "name": "@trading-bot/trader-runtime",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@trading-bot/market-data-kraken": "*",
+    "@trading-bot/strategy-schemas": "*"
+  }
+}
