@@ -22,7 +22,7 @@ export interface PublicClientOptions {
 }
 
 export interface WarmupCandlesInput {
-  restBaseUrl: string;
+  chartsBaseUrl: string;
   symbol: string;
   timeframe: '15m';
   limit: number;

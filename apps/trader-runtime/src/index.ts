@@ -38,7 +38,7 @@ async function bootstrap(): Promise<void> {
   for (const market of markets) {
     try {
       const candles = await warmupCandlesFromTradeHistory({
-        restBaseUrl: config.restBaseUrl,
+        chartsBaseUrl: config.chartsBaseUrl,
         symbol: market.symbol,
         timeframe: '15m',
         limit: 200,

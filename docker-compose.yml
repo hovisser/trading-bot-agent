@@ -14,4 +14,5 @@ services:
       DEBUG: "true"
       KRAKEN_FUTURES_REST_URL: https://futures.kraken.com/derivatives/api/v3
       KRAKEN_FUTURES_WS_URL: wss://futures.kraken.com/ws/v1
+      KRAKEN_FUTURES_CHARTS_URL: https://futures.kraken.com/api/charts/v1
     restart: unless-stopped
