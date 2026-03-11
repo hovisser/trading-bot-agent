@@ -14,7 +14,4 @@ npm install
 npm run dev
 
 ''issues
-
-- Kraken historical warmup returns no candles yet
-- Kraken trade feed parser may not capture all BTC trades consistently
 - Swing/trend logic is v1 and needs refinement before production use

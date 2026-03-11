@@ -5,6 +5,7 @@ import {
   warmupCandlesFromTradeHistory,
 } from '@trading-bot/market-data-kraken';
 import { StructureEngine } from '@trading-bot/market-structure';
+import { SetupScanner } from '@trading-bot/setup-scanner';
 import {
   defaultScalpStrategy,
   validateScalpStrategy,
@@ -30,6 +31,13 @@ async function bootstrap(): Promise<void> {
     swingLookback: 2,
     zonePaddingPct: 0.0015,
     maxZonesPerType: 5,
+  });
+
+  const scanner = new SetupScanner({
+    strategyId: strategy.id,
+    minRR: strategy.filters.minRR,
+    requireTrendAlignment: strategy.filters.requireTrendAlignment,
+    timeframe: '15m',
   });
 
   const marketSymbols = markets.map((m) => m.symbol);
@@ -142,6 +150,17 @@ async function bootstrap(): Promise<void> {
         .map((z) => `${z.type}[${z.from.toFixed(2)}-${z.to.toFixed(2)}]`)
         .join(', ') || 'none',
     );
+
+    const result = scanner.scan(snapshot);
+
+    for (const candidate of result.candidates) {
+      logInfo(
+        `setup candidate ${candidate.symbol} ${candidate.direction}`,
+        `entry=${candidate.entryPrice}`,
+        `stop=${candidate.stopLoss}`,
+        `rr=${candidate.rrEstimate.toFixed(2)}`,
+      );
+    }
   });
 
   client.connect();

@@ -13,7 +13,8 @@
       "@trading-bot/shared-types": ["packages/shared-types/src/index.ts"],
       "@trading-bot/strategy-schemas": ["packages/strategy-schemas/src/index.ts"],
       "@trading-bot/market-data-kraken": ["packages/market-data-kraken/src/index.ts"],
-      "@trading-bot/market-structure": ["packages/market-structure/src/index.ts"]
+      "@trading-bot/market-structure": ["packages/market-structure/src/index.ts"],
+      "@trading-bot/setup-scanner": ["packages/setup-scanner/src/index.ts"]
     }
   }
 }

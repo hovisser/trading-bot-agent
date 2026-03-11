@@ -8,6 +8,7 @@ COPY packages/shared-types/package*.json ./packages/shared-types/
 COPY packages/strategy-schemas/package*.json ./packages/strategy-schemas/
 COPY packages/market-data-kraken/package*.json ./packages/market-data-kraken/
 COPY packages/market-structure/package*.json ./packages/market-structure/
+COPY packages/setup-scanner/package*.json ./packages/setup-scanner/
 
 RUN npm install
 

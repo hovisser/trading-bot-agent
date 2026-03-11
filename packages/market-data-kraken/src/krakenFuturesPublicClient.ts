@@ -128,7 +128,7 @@ export class KrakenFuturesPublicClient extends EventEmitter {
 
     this.emit(
       'status',
-      `snapshot_range:${symbol}:first=${JSON.stringify(firstTrade)}:last=${JSON.stringify(lastTrade)}`,
+      `debug:snapshot_range:${symbol}:first=${JSON.stringify(firstTrade)}:last=${JSON.stringify(lastTrade)}`,
     );
     this.flushClosedCandles();
     this.emit('status', `snapshot_complete:${symbol}`);
