@@ -60,4 +60,33 @@ export class CandleAggregator {
 
     return closed;
   }
+
+  public buildClosedCandlesFromTrades(
+    symbol: string,
+    trades: Array<{ price: number; quantity: number; timestamp: number }>,
+  ): Candle[] {
+    this.resetSymbol(symbol);
+
+    for (const trade of trades) {
+      this.updateFromTrade(
+        symbol,
+        trade.price,
+        trade.quantity,
+        trade.timestamp,
+      );
+    }
+
+    const farFuture = Date.now() + 365 * 24 * 60 * 60 * 1000;
+    const closed = this.markClosedCandles(farFuture);
+
+    return closed.sort((a, b) => a.openTime - b.openTime);
+  }
+
+  private resetSymbol(symbol: string): void {
+    for (const key of this.candles.keys()) {
+      if (key.startsWith(`${symbol}:`)) {
+        this.candles.delete(key);
+      }
+    }
+  }
 }

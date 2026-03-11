@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@trading-bot/market-data-kraken": "*",
-    "@trading-bot/strategy-schemas": "*"
+    "@trading-bot/strategy-schemas": "*",
+    "@trading-bot/market-structure": "*"
   }
 }

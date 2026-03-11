@@ -7,6 +7,7 @@ COPY apps/trader-runtime/package*.json ./apps/trader-runtime/
 COPY packages/shared-types/package*.json ./packages/shared-types/
 COPY packages/strategy-schemas/package*.json ./packages/strategy-schemas/
 COPY packages/market-data-kraken/package*.json ./packages/market-data-kraken/
+COPY packages/market-structure/package*.json ./packages/market-structure/
 
 RUN npm install
 

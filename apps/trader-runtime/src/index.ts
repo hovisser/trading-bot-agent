@@ -2,24 +2,66 @@ import {
   KrakenFuturesPublicClient,
   buildKrakenConfig,
   resolvePrimaryMarkets,
+  warmupCandlesFromTradeHistory,
 } from '@trading-bot/market-data-kraken';
+import { StructureEngine } from '@trading-bot/market-structure';
 import {
   defaultScalpStrategy,
   validateScalpStrategy,
 } from '@trading-bot/strategy-schemas';
+import { logDebug, logError, logInfo, logWarn } from './logger.js';
 
 async function bootstrap(): Promise<void> {
   const strategy = validateScalpStrategy(defaultScalpStrategy);
   const config = buildKrakenConfig();
 
-  console.log('[boot] strategy loaded:', strategy.id);
+  logInfo('strategy loaded', strategy.id);
 
   const markets = await resolvePrimaryMarkets({
     restBaseUrl: config.restBaseUrl,
     wantedMarkets: ['BTCUSD', 'ETHUSD'],
+    preferredContractTypes: ['perpetual', 'quarter', 'semiannual'],
   });
 
-  console.log('[boot] resolved markets:', markets);
+  logInfo('resolved markets', markets);
+
+  const structureEngine = new StructureEngine({
+    maxCandlesPerSeries: 500,
+    swingLookback: 2,
+    zonePaddingPct: 0.0015,
+    maxZonesPerType: 5,
+  });
+
+  for (const market of markets) {
+    try {
+      const candles = await warmupCandlesFromTradeHistory({
+        restBaseUrl: config.restBaseUrl,
+        symbol: market.symbol,
+        timeframe: '15m',
+        limit: 200,
+      });
+
+      if (!candles.length) {
+        logWarn(`warmup returned no candles for ${market.symbol}`);
+        continue;
+      }
+
+      for (const candle of candles) {
+        structureEngine.pushCandle(candle);
+      }
+
+      const snapshot = structureEngine.getSnapshot(market.symbol, '15m');
+
+      logInfo(
+        `warmup complete for ${market.symbol}`,
+        `candles=${snapshot.candles.length}`,
+        `swings=${snapshot.swings.length}`,
+        `trend=${snapshot.trend}`,
+      );
+    } catch (error) {
+      logWarn(`warmup failed for ${market.symbol}`, error);
+    }
+  }
 
   const client = new KrakenFuturesPublicClient({
     wsUrl: config.wsUrl,
@@ -27,32 +69,46 @@ async function bootstrap(): Promise<void> {
   });
 
   client.on('status', (status) => {
-    console.log('[kraken-status]', status);
+    logInfo(`kraken-status ${status}`);
   });
 
   client.on('trade', (trade) => {
-    console.log('[trade]', trade.symbol, trade.price, trade.quantity);
+    logDebug(
+      `trade ${trade.symbol} price=${trade.price} qty=${trade.quantity} side=${trade.side ?? 'unknown'}`,
+    );
   });
 
   client.on('candle', (candle) => {
-    if (candle.closed) {
-      console.log(
-        '[candle-closed]',
-        candle.symbol,
-        candle.timeframe,
-        candle.open,
-        candle.high,
-        candle.low,
-        candle.close,
-        candle.volume,
-      );
+    if (!candle.closed) {
+      return;
     }
+
+    const snapshot = structureEngine.pushCandle(candle);
+
+    const recentStructure = snapshot.labeledStructure.slice(-6);
+    const recentZones = snapshot.zones.slice(-4);
+
+    logInfo(
+      `structure ${snapshot.symbol} ${snapshot.timeframe} trend=${snapshot.trend}`,
+    );
+
+    logInfo(
+      'recent structure',
+      recentStructure.map((x) => `${x.label}@${x.price}`).join(', ') || 'none',
+    );
+
+    logInfo(
+      'recent zones',
+      recentZones
+        .map((z) => `${z.type}[${z.from.toFixed(2)}-${z.to.toFixed(2)}]`)
+        .join(', ') || 'none',
+    );
   });
 
   client.connect();
 }
 
 bootstrap().catch((error) => {
-  console.error('[fatal]', error);
+  logError('fatal bootstrap error', error);
   process.exit(1);
 });

@@ -7,7 +7,6 @@ import type { PublicClientEvents, PublicClientOptions } from './types.js';
 export class KrakenFuturesPublicClient extends EventEmitter {
   private ws: WebSocket | null = null;
   private readonly aggregator = new CandleAggregator();
-  private pingInterval: NodeJS.Timeout | null = null;
 
   constructor(private readonly options: PublicClientOptions) {
     super();
@@ -19,7 +18,6 @@ export class KrakenFuturesPublicClient extends EventEmitter {
     this.ws.on('open', () => {
       this.emit('status', 'connected');
       this.subscribeTrades();
-      this.startPing();
     });
 
     this.ws.on('message', (data) => {
@@ -36,7 +34,6 @@ export class KrakenFuturesPublicClient extends EventEmitter {
 
     this.ws.on('close', () => {
       this.emit('status', 'closed');
-      this.stopPing();
     });
 
     this.ws.on('error', (error) => {
@@ -45,39 +42,33 @@ export class KrakenFuturesPublicClient extends EventEmitter {
   }
 
   private subscribeTrades(): void {
-    if (!this.ws) return;
-
-    for (const symbol of this.options.symbols) {
-      this.ws.send(
-        JSON.stringify({
-          event: 'subscribe',
-          feed: 'trade',
-          product_ids: [symbol],
-        }),
-      );
+    if (!this.ws) {
+      return;
     }
-  }
 
-  private startPing(): void {
-    this.stopPing();
-
-    this.pingInterval = setInterval(() => {
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-        return;
-      }
-
-      this.ws.send(JSON.stringify({ event: 'ping' }));
-    }, 30_000);
-  }
-
-  private stopPing(): void {
-    if (this.pingInterval) {
-      clearInterval(this.pingInterval);
-      this.pingInterval = null;
-    }
+    this.ws.send(
+      JSON.stringify({
+        event: 'subscribe',
+        feed: 'trade',
+        product_ids: this.options.symbols,
+      }),
+    );
   }
 
   private handleMessage(message: any): void {
+    if (message?.event === 'alert') {
+      this.emit('status', `alert:${message.message}`);
+      return;
+    }
+
+    if (message?.event === 'subscribed') {
+      this.emit(
+        'status',
+        `subscribed:${message.feed ?? 'unknown'}:${message.product_ids?.join(',') ?? ''}`,
+      );
+      return;
+    }
+
     const feed = message?.feed;
 
     if (feed !== 'trade') {

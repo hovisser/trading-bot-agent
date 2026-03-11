@@ -1,4 +1,8 @@
-import type { ResolvePrimaryMarketsInput, KrakenMarket } from './types.js';
+import type {
+  ResolvePrimaryMarketsInput,
+  KrakenMarket,
+  KrakenContractPreference,
+} from './types.js';
 
 interface TickersResponse {
   tickers?: Array<{
@@ -21,9 +25,52 @@ function toMarketKey(symbol: string): 'BTCUSD' | 'ETHUSD' | null {
   return null;
 }
 
+function normalizeContractType(tag?: string): KrakenContractPreference | null {
+  if (!tag) {
+    return null;
+  }
+
+  const value = tag.toLowerCase();
+
+  if (value.includes('perpetual')) {
+    return 'perpetual';
+  }
+
+  if (value.includes('quarter')) {
+    return 'quarter';
+  }
+
+  if (value.includes('semiannual')) {
+    return 'semiannual';
+  }
+
+  return null;
+}
+
+function scoreContractType(
+  tag: string | undefined,
+  preferences: KrakenContractPreference[],
+): number {
+  const normalized = normalizeContractType(tag);
+
+  if (!normalized) {
+    return 999;
+  }
+
+  const index = preferences.indexOf(normalized);
+
+  return index === -1 ? 999 : index;
+}
+
 export async function resolvePrimaryMarkets(
   input: ResolvePrimaryMarketsInput,
 ): Promise<KrakenMarket[]> {
+  const preferences = input.preferredContractTypes ?? [
+    'perpetual',
+    'quarter',
+    'semiannual',
+  ];
+
   const response = await fetch(`${input.restBaseUrl}/tickers`);
   if (!response.ok) {
     throw new Error(
@@ -34,34 +81,56 @@ export async function resolvePrimaryMarkets(
   const json = (await response.json()) as TickersResponse;
   const tickers = json.tickers ?? [];
 
-  const wanted = new Set(input.wantedMarkets);
-  const resolved = new Map<'BTCUSD' | 'ETHUSD', KrakenMarket>();
+  const grouped = new Map<'BTCUSD' | 'ETHUSD', KrakenMarket[]>();
 
   for (const ticker of tickers) {
     const symbol = ticker.symbol;
-    if (!symbol) continue;
+    if (!symbol) {
+      continue;
+    }
 
     const marketKey = toMarketKey(symbol);
-    if (!marketKey) continue;
-    if (!wanted.has(marketKey)) continue;
-    if (resolved.has(marketKey)) continue;
+    if (!marketKey) {
+      continue;
+    }
 
-    resolved.set(marketKey, {
+    if (!input.wantedMarkets.includes(marketKey)) {
+      continue;
+    }
+
+    const item: KrakenMarket = {
       symbol,
       marketKey,
-      base: marketKey.startsWith('BTC') ? 'BTC' : 'ETH',
+      base: marketKey === 'BTCUSD' ? 'BTC' : 'ETH',
       quote: 'USD',
       contractType: ticker.tag,
+    };
+
+    const existing = grouped.get(marketKey) ?? [];
+    existing.push(item);
+    grouped.set(marketKey, existing);
+  }
+
+  const resolved: KrakenMarket[] = [];
+
+  for (const wanted of input.wantedMarkets) {
+    const candidates = grouped.get(wanted) ?? [];
+
+    if (!candidates.length) {
+      throw new Error(
+        `Could not resolve any Kraken futures contract for ${wanted}`,
+      );
+    }
+
+    candidates.sort((a, b) => {
+      return (
+        scoreContractType(a.contractType, preferences) -
+        scoreContractType(b.contractType, preferences)
+      );
     });
+
+    resolved.push(candidates[0]);
   }
 
-  const result = Array.from(resolved.values());
-
-  if (result.length !== input.wantedMarkets.length) {
-    throw new Error(
-      `Could not resolve all wanted Kraken markets. Resolved=${result.map((x) => x.symbol).join(', ')}`,
-    );
-  }
-
-  return result;
+  return resolved;
 }

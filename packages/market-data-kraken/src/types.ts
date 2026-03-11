@@ -1,5 +1,7 @@
 import type { Candle, TradeTick } from '@trading-bot/shared-types';
 
+export type KrakenContractPreference = 'perpetual' | 'quarter' | 'semiannual';
+
 export interface KrakenMarket {
   symbol: string;
   marketKey: 'BTCUSD' | 'ETHUSD';
@@ -11,11 +13,19 @@ export interface KrakenMarket {
 export interface ResolvePrimaryMarketsInput {
   restBaseUrl: string;
   wantedMarkets: Array<'BTCUSD' | 'ETHUSD'>;
+  preferredContractTypes?: KrakenContractPreference[];
 }
 
 export interface PublicClientOptions {
   wsUrl: string;
   symbols: string[];
+}
+
+export interface WarmupCandlesInput {
+  restBaseUrl: string;
+  symbol: string;
+  timeframe: '15m';
+  limit: number;
 }
 
 export interface PublicClientEvents {
