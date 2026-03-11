@@ -4,11 +4,16 @@ import type {
   KrakenContractPreference,
 } from './types.js';
 
+interface TickerItem {
+  symbol?: string;
+  tag?: string;
+  last?: number | string;
+  markPrice?: number | string;
+  indexPrice?: number | string;
+}
+
 interface TickersResponse {
-  tickers?: Array<{
-    symbol?: string;
-    tag?: string;
-  }>;
+  tickers?: TickerItem[];
 }
 
 function toMarketKey(symbol: string): 'BTCUSD' | 'ETHUSD' | null {
@@ -58,8 +63,84 @@ function scoreContractType(
   }
 
   const index = preferences.indexOf(normalized);
-
   return index === -1 ? 999 : index;
+}
+
+function extractReferencePrice(ticker: TickerItem): number | null {
+  const candidates = [ticker.markPrice, ticker.indexPrice, ticker.last];
+
+  for (const candidate of candidates) {
+    const value = Number(candidate);
+
+    if (Number.isFinite(value) && value > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function passesPriceSanity(
+  marketKey: 'BTCUSD' | 'ETHUSD',
+  price: number | null,
+): boolean {
+  // Als de API geen prijs meegeeft, blokkeren we hem niet direct.
+  if (price === null) {
+    return true;
+  }
+
+  if (marketKey === 'BTCUSD') {
+    return price > 1_000;
+  }
+
+  if (marketKey === 'ETHUSD') {
+    return price > 100;
+  }
+
+  return true;
+}
+
+function symbolNameScore(
+  marketKey: 'BTCUSD' | 'ETHUSD',
+  symbol: string,
+): number {
+  const upper = symbol.toUpperCase();
+
+  // Lager = beter
+  if (marketKey === 'BTCUSD') {
+    if (upper === 'PI_XBTUSD') return 0;
+    if (upper === 'PF_XBTUSD') return 1;
+    if (upper === 'PI_BTCUSD') return 2;
+    if (upper === 'PF_BTCUSD') return 3;
+
+    if (upper.includes('PI_XBTUSD')) return 5;
+    if (upper.includes('PF_XBTUSD')) return 6;
+    if (upper.includes('PI_BTCUSD')) return 7;
+    if (upper.includes('PF_BTCUSD')) return 8;
+
+    if (upper.includes('XBTUSD')) return 20;
+    if (upper.includes('BTCUSD')) return 25;
+
+    return 999;
+  }
+
+  if (marketKey === 'ETHUSD') {
+    if (upper === 'PI_ETHUSD') return 0;
+    if (upper === 'PF_ETHUSD') return 1;
+
+    if (upper.includes('PI_ETHUSD')) return 5;
+    if (upper.includes('PF_ETHUSD')) return 6;
+
+    if (upper.includes('ETHUSD')) return 20;
+
+    return 999;
+  }
+
+  return 999;
+}
+
+function buildBaseAsset(marketKey: 'BTCUSD' | 'ETHUSD'): string {
+  return marketKey === 'BTCUSD' ? 'BTC' : 'ETH';
 }
 
 export async function resolvePrimaryMarkets(
@@ -72,6 +153,7 @@ export async function resolvePrimaryMarkets(
   ];
 
   const response = await fetch(`${input.restBaseUrl}/tickers`);
+
   if (!response.ok) {
     throw new Error(
       `Failed to fetch Kraken futures tickers: ${response.status}`,
@@ -85,11 +167,13 @@ export async function resolvePrimaryMarkets(
 
   for (const ticker of tickers) {
     const symbol = ticker.symbol;
+
     if (!symbol) {
       continue;
     }
 
     const marketKey = toMarketKey(symbol);
+
     if (!marketKey) {
       continue;
     }
@@ -98,16 +182,22 @@ export async function resolvePrimaryMarkets(
       continue;
     }
 
-    const item: KrakenMarket = {
+    const referencePrice = extractReferencePrice(ticker);
+
+    if (!passesPriceSanity(marketKey, referencePrice)) {
+      continue;
+    }
+
+    const candidate: KrakenMarket = {
       symbol,
       marketKey,
-      base: marketKey === 'BTCUSD' ? 'BTC' : 'ETH',
+      base: buildBaseAsset(marketKey),
       quote: 'USD',
       contractType: ticker.tag,
     };
 
     const existing = grouped.get(marketKey) ?? [];
-    existing.push(item);
+    existing.push(candidate);
     grouped.set(marketKey, existing);
   }
 
@@ -118,15 +208,27 @@ export async function resolvePrimaryMarkets(
 
     if (!candidates.length) {
       throw new Error(
-        `Could not resolve any Kraken futures contract for ${wanted}`,
+        `Could not resolve any sane Kraken futures contract for ${wanted}`,
       );
     }
 
     candidates.sort((a, b) => {
-      return (
+      const contractScoreDiff =
         scoreContractType(a.contractType, preferences) -
-        scoreContractType(b.contractType, preferences)
-      );
+        scoreContractType(b.contractType, preferences);
+
+      if (contractScoreDiff !== 0) {
+        return contractScoreDiff;
+      }
+
+      const symbolScoreDiff =
+        symbolNameScore(wanted, a.symbol) - symbolNameScore(wanted, b.symbol);
+
+      if (symbolScoreDiff !== 0) {
+        return symbolScoreDiff;
+      }
+
+      return a.symbol.localeCompare(b.symbol);
     });
 
     resolved.push(candidates[0]);
