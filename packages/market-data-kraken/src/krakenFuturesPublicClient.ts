@@ -46,6 +46,13 @@ export class KrakenFuturesPublicClient extends EventEmitter {
       return;
     }
 
+    /*this.ws.send(
+      JSON.stringify({
+        event: 'subscribe',
+        feed: 'trade',
+        product_ids: ['PF_XBTUSD'],
+      }),
+    );*/
     for (const symbol of this.options.symbols) {
       this.emit('status', `subscribing trade feed for ${symbol}`);
 

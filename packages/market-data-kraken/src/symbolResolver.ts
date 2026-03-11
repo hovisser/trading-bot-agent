@@ -49,6 +49,14 @@ function normalizeContractType(tag?: string): KrakenContractPreference | null {
     return 'semiannual';
   }
 
+  if (value.includes('month')) {
+    return 'quarter';
+  }
+
+  if (value.includes('week')) {
+    return 'quarter';
+  }
+
   return null;
 }
 
@@ -84,7 +92,6 @@ function passesPriceSanity(
   marketKey: 'BTCUSD' | 'ETHUSD',
   price: number | null,
 ): boolean {
-  // Als de API geen prijs meegeeft, blokkeren we hem niet direct.
   if (price === null) {
     return true;
   }
@@ -106,17 +113,16 @@ function symbolNameScore(
 ): number {
   const upper = symbol.toUpperCase();
 
-  // Lager = beter
   if (marketKey === 'BTCUSD') {
-    if (upper === 'PI_XBTUSD') return 0;
-    if (upper === 'PF_XBTUSD') return 1;
-    if (upper === 'PI_BTCUSD') return 2;
-    if (upper === 'PF_BTCUSD') return 3;
+    if (upper === 'PF_XBTUSD') return 0;
+    if (upper === 'PI_XBTUSD') return 1;
+    if (upper === 'PF_BTCUSD') return 2;
+    if (upper === 'PI_BTCUSD') return 3;
 
-    if (upper.includes('PI_XBTUSD')) return 5;
-    if (upper.includes('PF_XBTUSD')) return 6;
-    if (upper.includes('PI_BTCUSD')) return 7;
-    if (upper.includes('PF_BTCUSD')) return 8;
+    if (upper.includes('PF_XBTUSD')) return 5;
+    if (upper.includes('PI_XBTUSD')) return 6;
+    if (upper.includes('PF_BTCUSD')) return 7;
+    if (upper.includes('PI_BTCUSD')) return 8;
 
     if (upper.includes('XBTUSD')) return 20;
     if (upper.includes('BTCUSD')) return 25;
@@ -125,11 +131,11 @@ function symbolNameScore(
   }
 
   if (marketKey === 'ETHUSD') {
-    if (upper === 'PI_ETHUSD') return 0;
-    if (upper === 'PF_ETHUSD') return 1;
+    if (upper === 'PF_ETHUSD') return 0;
+    if (upper === 'PI_ETHUSD') return 1;
 
-    if (upper.includes('PI_ETHUSD')) return 5;
-    if (upper.includes('PF_ETHUSD')) return 6;
+    if (upper.includes('PF_ETHUSD')) return 5;
+    if (upper.includes('PI_ETHUSD')) return 6;
 
     if (upper.includes('ETHUSD')) return 20;
 

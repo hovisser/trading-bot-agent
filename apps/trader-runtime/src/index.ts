@@ -84,7 +84,6 @@ async function bootstrap(): Promise<void> {
     }
 
     const snapshot = structureEngine.pushCandle(candle);
-
     const recentStructure = snapshot.labeledStructure.slice(-6);
     const recentZones = snapshot.zones.slice(-4);
 
