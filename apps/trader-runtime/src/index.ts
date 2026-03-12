@@ -12,6 +12,7 @@ import {
   validateScalpStrategy,
 } from '@trading-bot/strategy-schemas';
 import { logDebug, logError, logInfo, logWarn } from './logger.js';
+import { stat } from 'node:fs';
 
 async function bootstrap(): Promise<void> {
   const strategy = validateScalpStrategy(defaultScalpStrategy);
@@ -81,7 +82,11 @@ async function bootstrap(): Promise<void> {
   });
 
   client.on('status', (status) => {
-    logInfo(`kraken-status ${status}`);
+    if (status.startsWith('debug')) {
+      logDebug(`kraken-status ${status}`);
+    } else {
+      logInfo(`kraken-status ${status}`);
+    }
 
     if (!status.startsWith('snapshot_complete:')) {
       return;
