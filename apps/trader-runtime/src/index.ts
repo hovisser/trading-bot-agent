@@ -29,7 +29,7 @@ async function bootstrap(): Promise<void> {
   logInfo('resolved markets', markets);
 
   const structureEngine = new StructureEngine({
-    maxCandlesPerSeries: 500,
+    maxCandlesPerSeries: 800,
     swingLookback: 2,
     zonePaddingPct: 0.0015,
     maxZonesPerType: 5,
@@ -40,6 +40,10 @@ async function bootstrap(): Promise<void> {
     minRR: strategy.filters.minRR,
     requireTrendAlignment: strategy.filters.requireTrendAlignment,
     timeframe: '15m',
+    replayLookbackCandles: 300,
+    breakoutLookbackCandles: 20,
+    maxPullbackCandles: 6,
+    stopBufferPct: strategy.stopLoss.bufferPct,
   });
 
   const marketSymbols = markets.map((m) => m.symbol);
@@ -51,7 +55,7 @@ async function bootstrap(): Promise<void> {
         chartsBaseUrl: config.chartsBaseUrl,
         symbol: market.symbol,
         timeframe: '15m',
-        limit: 200,
+        limit: 500,
       });
 
       if (!candles.length) {

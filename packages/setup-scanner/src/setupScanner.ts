@@ -1,177 +1,50 @@
-import { randomUUID } from 'node:crypto';
 import type { SetupCandidate } from '@trading-bot/shared-types';
-import { isFreshSetup } from '@trading-bot/market-structure';
 import type { StructureSnapshot } from '@trading-bot/market-structure';
-import { detectBreakout } from './breakoutDetector.js';
-import { detectPullback } from './pullbackDetector.js';
-import { detectEntry } from './entryDetector.js';
 import type { ScanResult } from './types.js';
+import { replayForCandidates } from './setupStateMachine.js';
 
 export interface SetupScannerOptions {
   strategyId: string;
   minRR: number;
   requireTrendAlignment: boolean;
   timeframe: '15m';
+  replayLookbackCandles: number;
+  breakoutLookbackCandles: number;
+  maxPullbackCandles: number;
+  stopBufferPct: number;
 }
 
 export class SetupScanner {
   constructor(private readonly options: SetupScannerOptions) {}
 
   public scan(snapshot: StructureSnapshot): ScanResult {
-    const debug = process.env.DEBUG === 'true';
-    const candidates: SetupCandidate[] = [];
-
-    const breakout = detectBreakout(snapshot);
-
-    if (!breakout) {
-      if (debug) {
-        console.log('[scanner] no breakout', snapshot.symbol);
-      }
-      return { snapshot, candidates };
-    }
-
-    if (this.options.requireTrendAlignment) {
-      if (breakout.direction === 'long' && snapshot.trend !== 'up') {
-        if (debug) {
-          console.log(
-            '[scanner]',
-            snapshot.symbol,
-            'trend filter blocked long',
-            'trend=',
-            snapshot.trend,
-          );
-        }
-        return { snapshot, candidates };
-      }
-
-      if (breakout.direction === 'short' && snapshot.trend !== 'down') {
-        if (debug) {
-          console.log(
-            '[scanner]',
-            snapshot.symbol,
-            'trend filter blocked short',
-            'trend=',
-            snapshot.trend,
-          );
-        }
-        return { snapshot, candidates };
-      }
-    }
-
-    const pullback = detectPullback(snapshot, breakout);
-
-    if (!pullback) {
-      if (debug) {
-        console.log('[scanner] no pullback', snapshot.symbol);
-      }
-      return { snapshot, candidates };
-    }
-
-    const entry = detectEntry(pullback);
-
-    if (!entry) {
-      if (debug) {
-        console.log('[scanner] no entry', snapshot.symbol);
-      }
-      return { snapshot, candidates };
-    }
-
-    const candlesAfterSetup = snapshot.candles.slice(
-      entry.triggerCandleIndex + 1,
-    );
-
-    const freshSetup = isFreshSetup({
-      direction: entry.direction,
-      entryPrice: entry.entryPrice,
-      candlesAfterSetup,
+    const candidates: SetupCandidate[] = replayForCandidates(snapshot, {
+      strategyId: this.options.strategyId,
+      minRR: this.options.minRR,
+      requireTrendAlignment: this.options.requireTrendAlignment,
+      timeframe: this.options.timeframe,
+      replayLookbackCandles: this.options.replayLookbackCandles,
+      breakoutLookbackCandles: this.options.breakoutLookbackCandles,
+      maxPullbackCandles: this.options.maxPullbackCandles,
+      stopBufferPct: this.options.stopBufferPct,
     });
 
-    if (!freshSetup) {
-      if (debug) {
-        console.log('[scanner] not fresh', snapshot.symbol);
-      }
-      return { snapshot, candidates };
+    if (process.env.DEBUG === 'true' && candidates.length === 0) {
+      console.log('[scanner]', snapshot.symbol, 'no candidates after replay');
     }
 
-    const rrEstimate = this.estimateRR(
+    if (process.env.DEBUG === 'true' && candidates.length > 0) {
+      console.log(
+        '[scanner]',
+        snapshot.symbol,
+        'candidates found',
+        candidates.length,
+      );
+    }
+
+    return {
       snapshot,
-      entry.direction,
-      entry.entryPrice,
-      entry.stopLoss,
-    );
-
-    if (rrEstimate < this.options.minRR) {
-      if (debug) {
-        console.log('[scanner] RR too low', snapshot.symbol, rrEstimate);
-      }
-      return { snapshot, candidates };
-    }
-
-    const candidate: SetupCandidate = {
-      id: randomUUID(),
-      strategyId: this.options.strategyId,
-      exchange: 'kraken',
-      symbol: snapshot.symbol,
-      direction: entry.direction,
-      timeframe: this.options.timeframe,
-      detectedAt: Date.now(),
-      entryPrice: entry.entryPrice,
-      stopLoss: entry.stopLoss,
-      htfTrend: snapshot.trend,
-      rrEstimate,
-      features: [
-        'breakout_detected',
-        'pullback_detected',
-        'elbow_entry',
-        'fresh_setup',
-      ],
-      warnings: [],
-      freshSetup: true,
+      candidates,
     };
-
-    candidates.push(candidate);
-
-    return { snapshot, candidates };
-  }
-
-  private estimateRR(
-    snapshot: StructureSnapshot,
-    direction: 'long' | 'short',
-    entryPrice: number,
-    stopLoss: number,
-  ): number {
-    const risk = Math.abs(entryPrice - stopLoss);
-
-    if (risk <= 0) {
-      return 0;
-    }
-
-    if (direction === 'long') {
-      const nearestResistance = snapshot.zones
-        .filter(
-          (zone) => zone.type === 'resistance' && zone.sourcePrice > entryPrice,
-        )
-        .sort((a, b) => a.sourcePrice - b.sourcePrice)[0];
-
-      if (!nearestResistance) {
-        return 0;
-      }
-
-      const reward = nearestResistance.sourcePrice - entryPrice;
-      return reward / risk;
-    }
-
-    const nearestSupport = snapshot.zones
-      .filter(
-        (zone) => zone.type === 'support' && zone.sourcePrice < entryPrice,
-      )
-      .sort((a, b) => b.sourcePrice - a.sourcePrice)[0];
-
-    if (!nearestSupport) {
-      return 0;
-    }
-
-    const reward = entryPrice - nearestSupport.sourcePrice;
-    return reward / risk;
   }
 }
