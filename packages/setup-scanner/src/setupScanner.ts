@@ -18,20 +18,42 @@ export class SetupScanner {
   constructor(private readonly options: SetupScannerOptions) {}
 
   public scan(snapshot: StructureSnapshot): ScanResult {
+    const debug = process.env.DEBUG === 'true';
     const candidates: SetupCandidate[] = [];
 
     const breakout = detectBreakout(snapshot);
 
     if (!breakout) {
+      if (debug) {
+        console.log('[scanner] no breakout', snapshot.symbol);
+      }
       return { snapshot, candidates };
     }
 
     if (this.options.requireTrendAlignment) {
       if (breakout.direction === 'long' && snapshot.trend !== 'up') {
+        if (debug) {
+          console.log(
+            '[scanner]',
+            snapshot.symbol,
+            'trend filter blocked long',
+            'trend=',
+            snapshot.trend,
+          );
+        }
         return { snapshot, candidates };
       }
 
       if (breakout.direction === 'short' && snapshot.trend !== 'down') {
+        if (debug) {
+          console.log(
+            '[scanner]',
+            snapshot.symbol,
+            'trend filter blocked short',
+            'trend=',
+            snapshot.trend,
+          );
+        }
         return { snapshot, candidates };
       }
     }
@@ -39,12 +61,18 @@ export class SetupScanner {
     const pullback = detectPullback(snapshot, breakout);
 
     if (!pullback) {
+      if (debug) {
+        console.log('[scanner] no pullback', snapshot.symbol);
+      }
       return { snapshot, candidates };
     }
 
     const entry = detectEntry(pullback);
 
     if (!entry) {
+      if (debug) {
+        console.log('[scanner] no entry', snapshot.symbol);
+      }
       return { snapshot, candidates };
     }
 
@@ -59,6 +87,9 @@ export class SetupScanner {
     });
 
     if (!freshSetup) {
+      if (debug) {
+        console.log('[scanner] not fresh', snapshot.symbol);
+      }
       return { snapshot, candidates };
     }
 
@@ -70,6 +101,9 @@ export class SetupScanner {
     );
 
     if (rrEstimate < this.options.minRR) {
+      if (debug) {
+        console.log('[scanner] RR too low', snapshot.symbol, rrEstimate);
+      }
       return { snapshot, candidates };
     }
 

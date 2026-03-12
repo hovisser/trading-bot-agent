@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import {
   KrakenFuturesPublicClient,
   buildKrakenConfig,
@@ -113,6 +114,20 @@ async function bootstrap(): Promise<void> {
         .map((z) => `${z.type}[${z.from.toFixed(2)}-${z.to.toFixed(2)}]`)
         .join(', ') || 'none',
     );
+
+    const bootstrapScanResult = scanner.scan(snapshot);
+    if (bootstrapScanResult.candidates.length === 0) {
+      logDebug(`scanner ${symbol} no candidates on bootstrap`);
+    }
+
+    for (const candidate of bootstrapScanResult.candidates) {
+      logInfo(
+        `bootstrap setup candidate ${candidate.symbol} ${candidate.direction}`,
+        `entry=${candidate.entryPrice}`,
+        `stop=${candidate.stopLoss}`,
+        `rr=${candidate.rrEstimate.toFixed(2)}`,
+      );
+    }
   });
 
   client.on('trade', (trade) => {
@@ -152,6 +167,10 @@ async function bootstrap(): Promise<void> {
     );
 
     const result = scanner.scan(snapshot);
+
+    if (result.candidates.length === 0) {
+      logDebug(`scanner ${snapshot.symbol} no candidates`);
+    }
 
     for (const candidate of result.candidates) {
       logInfo(
