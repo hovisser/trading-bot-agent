@@ -1,8 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { Candle, SetupCandidate } from '@trading-bot/shared-types';
-import { isFreshSetup } from '@trading-bot/market-structure';
 import type { StructureSnapshot } from '@trading-bot/market-structure';
-import type { ScannerTraceEvent, StatefulSetupState } from './types.js';
+import { isFreshSetup } from '@trading-bot/market-structure';
+import type {
+  HistoricalSetupEntry,
+  ScannerTraceEvent,
+  StatefulSetupState,
+} from './types.js';
 
 export interface ReplayScannerOptions {
   strategyId: string;
@@ -17,6 +21,7 @@ export interface ReplayScannerOptions {
 
 export interface ReplayScanOutput {
   candidates: SetupCandidate[];
+  historicalEntries: HistoricalSetupEntry[];
   trace: ScannerTraceEvent[];
 }
 
@@ -25,9 +30,11 @@ export function replayForCandidates(
   options: ReplayScannerOptions,
 ): ReplayScanOutput {
   const candidates: SetupCandidate[] = [];
+  const historicalEntries: HistoricalSetupEntry[] = [];
   const trace: ScannerTraceEvent[] = [];
 
   const candles = snapshot.candles.slice(-options.replayLookbackCandles);
+
   if (candles.length < options.breakoutLookbackCandles + 5) {
     trace.push({
       symbol: snapshot.symbol,
@@ -36,7 +43,7 @@ export function replayForCandidates(
       rejectionReason: 'no_breakout',
     });
 
-    return { candidates, trace };
+    return { candidates, historicalEntries, trace };
   }
 
   let state: StatefulSetupState | null = null;
@@ -67,6 +74,8 @@ export function replayForCandidates(
       });
 
       if (options.requireTrendAlignment) {
+        // Voor nu alleen harde mismatch blokkeren.
+        // Later vervangen we dit door een echte HTF bias input.
         const hardMismatch =
           (breakout.direction === 'long' && snapshot.trend === 'down') ||
           (breakout.direction === 'short' && snapshot.trend === 'up');
@@ -135,16 +144,35 @@ export function replayForCandidates(
       message: `entry confirmed at ${entry.entryPrice}`,
     });
 
+    const rrProjection = projectTargetAndRR(
+      snapshot,
+      entry.direction,
+      entry.entryPrice,
+      entry.stopLoss,
+      options.minRR,
+    );
+
+    const historicalEntry: HistoricalSetupEntry = {
+      symbol: snapshot.symbol,
+      direction: entry.direction,
+      entryPrice: entry.entryPrice,
+      stopLoss: entry.stopLoss,
+      rrEstimate: rrProjection.rrEstimate,
+      targetPrice: rrProjection.targetPrice,
+      detectedAtCandleIndex: i,
+      trendContext: snapshot.trend,
+      tradeableNow: false,
+    };
+
     trace.push({
       symbol: snapshot.symbol,
       state: 'historical_entry_found',
       candleIndex: i,
       direction: entry.direction,
-      message: `historical entry found entry=${entry.entryPrice} stop=${entry.stopLoss}`,
+      message: `historical entry found entry=${entry.entryPrice} stop=${entry.stopLoss} rr=${rrProjection.rrEstimate.toFixed(2)}`,
     });
 
-    // Fresh rule: sla de eerstvolgende candle na de entry candle over.
-    // Dus pas vanaf i + 2 beoordelen.
+    // Fresh rule pas vanaf candle +2 na entry candle toepassen
     const candlesAfterSetup = candles.slice(i + 2);
 
     const freshSetup = isFreshSetup({
@@ -154,6 +182,9 @@ export function replayForCandidates(
     });
 
     if (!freshSetup) {
+      historicalEntry.rejectionReason = 'fresh_rule_failed';
+      historicalEntries.push(historicalEntry);
+
       trace.push({
         symbol: snapshot.symbol,
         state: 'invalidated',
@@ -167,26 +198,25 @@ export function replayForCandidates(
       continue;
     }
 
-    const rrEstimate = estimateRR(
-      snapshot,
-      entry.direction,
-      entry.entryPrice,
-      entry.stopLoss,
-    );
+    if (rrProjection.rrEstimate < options.minRR) {
+      historicalEntry.rejectionReason = 'rr_too_low';
+      historicalEntries.push(historicalEntry);
 
-    if (rrEstimate < options.minRR) {
       trace.push({
         symbol: snapshot.symbol,
         state: 'invalidated',
         candleIndex: i,
         direction: entry.direction,
-        message: `rr too low: ${rrEstimate.toFixed(2)}`,
+        message: `rr too low: ${rrProjection.rrEstimate.toFixed(2)}`,
         rejectionReason: 'rr_too_low',
       });
 
       state = null;
       continue;
     }
+
+    historicalEntry.tradeableNow = true;
+    historicalEntries.push(historicalEntry);
 
     const candidate: SetupCandidate = {
       id: randomUUID(),
@@ -199,7 +229,7 @@ export function replayForCandidates(
       entryPrice: entry.entryPrice,
       stopLoss: entry.stopLoss,
       htfTrend: snapshot.trend,
-      rrEstimate,
+      rrEstimate: rrProjection.rrEstimate,
       features: [
         'historical_breakout',
         'pullback_detected',
@@ -217,7 +247,7 @@ export function replayForCandidates(
       state: 'candidate_emitted',
       candleIndex: i,
       direction: entry.direction,
-      message: `candidate emitted entry=${candidate.entryPrice} stop=${candidate.stopLoss} rr=${candidate.rrEstimate.toFixed(2)}`,
+      message: `candidate emitted entry=${candidate.entryPrice} stop=${candidate.stopLoss} rr=${candidate.rrEstimate.toFixed(2)} target=${rrProjection.targetPrice ?? 'none'}`,
     });
 
     state = null;
@@ -243,6 +273,7 @@ export function replayForCandidates(
 
   return {
     candidates: dedupeCandidates(candidates),
+    historicalEntries: dedupeHistoricalEntries(historicalEntries),
     trace,
   };
 }
@@ -334,41 +365,74 @@ function detectEntryFromPullback(
   };
 }
 
-function estimateRR(
+function projectTargetAndRR(
   snapshot: StructureSnapshot,
   direction: 'long' | 'short',
   entryPrice: number,
   stopLoss: number,
-): number {
+  minRR: number,
+): { targetPrice: number | null; rrEstimate: number } {
   const risk = Math.abs(entryPrice - stopLoss);
 
   if (risk <= 0) {
-    return 0;
+    return { targetPrice: null, rrEstimate: 0 };
   }
 
   if (direction === 'long') {
-    const nearestResistance = snapshot.zones
+    const targets = snapshot.zones
       .filter(
         (zone) => zone.type === 'resistance' && zone.sourcePrice > entryPrice,
       )
-      .sort((a, b) => a.sourcePrice - b.sourcePrice)[0];
+      .map((zone) => zone.sourcePrice)
+      .sort((a, b) => a - b);
 
-    if (!nearestResistance) {
-      return 0;
+    if (!targets.length) {
+      return { targetPrice: null, rrEstimate: 0 };
     }
 
-    return (nearestResistance.sourcePrice - entryPrice) / risk;
+    for (const target of targets) {
+      const rr = (target - entryPrice) / risk;
+
+      if (rr >= minRR) {
+        return {
+          targetPrice: target,
+          rrEstimate: rr,
+        };
+      }
+    }
+
+    const fallbackTarget = targets[0];
+    return {
+      targetPrice: fallbackTarget,
+      rrEstimate: (fallbackTarget - entryPrice) / risk,
+    };
   }
 
-  const nearestSupport = snapshot.zones
+  const targets = snapshot.zones
     .filter((zone) => zone.type === 'support' && zone.sourcePrice < entryPrice)
-    .sort((a, b) => b.sourcePrice - a.sourcePrice)[0];
+    .map((zone) => zone.sourcePrice)
+    .sort((a, b) => b - a);
 
-  if (!nearestSupport) {
-    return 0;
+  if (!targets.length) {
+    return { targetPrice: null, rrEstimate: 0 };
   }
 
-  return (entryPrice - nearestSupport.sourcePrice) / risk;
+  for (const target of targets) {
+    const rr = (entryPrice - target) / risk;
+
+    if (rr >= minRR) {
+      return {
+        targetPrice: target,
+        rrEstimate: rr,
+      };
+    }
+  }
+
+  const fallbackTarget = targets[0];
+  return {
+    targetPrice: fallbackTarget,
+    rrEstimate: (entryPrice - fallbackTarget) / risk,
+  };
 }
 
 function dedupeCandidates(candidates: SetupCandidate[]): SetupCandidate[] {
@@ -380,6 +444,30 @@ function dedupeCandidates(candidates: SetupCandidate[]): SetupCandidate[] {
       candidate.direction,
       candidate.entryPrice.toFixed(2),
       candidate.stopLoss.toFixed(2),
+    ].join(':');
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function dedupeHistoricalEntries(
+  entries: HistoricalSetupEntry[],
+): HistoricalSetupEntry[] {
+  const seen = new Set<string>();
+
+  return entries.filter((entry) => {
+    const key = [
+      entry.symbol,
+      entry.direction,
+      entry.entryPrice.toFixed(2),
+      entry.stopLoss.toFixed(2),
+      entry.tradeableNow ? 'live' : 'historical',
+      entry.rejectionReason ?? 'none',
     ].join(':');
 
     if (seen.has(key)) {

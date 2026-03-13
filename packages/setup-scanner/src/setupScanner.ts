@@ -1,6 +1,6 @@
 import type { SetupCandidate } from '@trading-bot/shared-types';
 import type { StructureSnapshot } from '@trading-bot/market-structure';
-import type { ScanResult } from './types.js';
+import type { HistoricalSetupEntry, ScanResult } from './types.js';
 import { replayForCandidates } from './setupStateMachine.js';
 
 export interface SetupScannerOptions {
@@ -30,11 +30,13 @@ export class SetupScanner {
     });
 
     const candidates: SetupCandidate[] = replay.candidates;
+    const historicalEntries: HistoricalSetupEntry[] = replay.historicalEntries;
     const trace = replay.trace;
 
     return {
       snapshot,
       candidates,
+      historicalEntries,
       trace,
     };
   }

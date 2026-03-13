@@ -35,8 +35,22 @@ export interface StatefulSetupState {
   expiresAtCandleIndex: number;
 }
 
+export interface HistoricalSetupEntry {
+  symbol: string;
+  direction: 'long' | 'short';
+  entryPrice: number;
+  stopLoss: number;
+  rrEstimate: number;
+  targetPrice: number | null;
+  detectedAtCandleIndex: number;
+  trendContext: 'up' | 'down' | 'neutral';
+  tradeableNow: boolean;
+  rejectionReason?: RejectionReason;
+}
+
 export interface ScanResult {
   snapshot: StructureSnapshot;
   candidates: import('@trading-bot/shared-types').SetupCandidate[];
+  historicalEntries: HistoricalSetupEntry[];
   trace: ScannerTraceEvent[];
 }

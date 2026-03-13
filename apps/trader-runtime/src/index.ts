@@ -138,6 +138,23 @@ async function bootstrap(): Promise<void> {
       );
     }
 
+    for (const historicalEntry of bootstrapScanResult.historicalEntries.slice(
+      -10,
+    )) {
+      logDebug(
+        `historical-entry ${historicalEntry.symbol}`,
+        `direction=${historicalEntry.direction}`,
+        `entry=${historicalEntry.entryPrice}`,
+        `stop=${historicalEntry.stopLoss}`,
+        `rr=${historicalEntry.rrEstimate.toFixed(2)}`,
+        `target=${historicalEntry.targetPrice ?? 'none'}`,
+        `tradeableNow=${historicalEntry.tradeableNow}`,
+        historicalEntry.rejectionReason
+          ? `reason=${historicalEntry.rejectionReason}`
+          : '',
+      );
+    }
+
     if (bootstrapScanResult.candidates.length === 0) {
       logDebug(`scanner ${symbol} no candidates on bootstrap`);
     }
@@ -200,6 +217,21 @@ async function bootstrap(): Promise<void> {
           ? `reason=${traceEvent.rejectionReason}`
           : '',
         traceEvent.message,
+      );
+    }
+
+    for (const historicalEntry of result.historicalEntries.slice(-5)) {
+      logDebug(
+        `historical-entry ${historicalEntry.symbol}`,
+        `direction=${historicalEntry.direction}`,
+        `entry=${historicalEntry.entryPrice}`,
+        `stop=${historicalEntry.stopLoss}`,
+        `rr=${historicalEntry.rrEstimate.toFixed(2)}`,
+        `target=${historicalEntry.targetPrice ?? 'none'}`,
+        `tradeableNow=${historicalEntry.tradeableNow}`,
+        historicalEntry.rejectionReason
+          ? `reason=${historicalEntry.rejectionReason}`
+          : '',
       );
     }
 
