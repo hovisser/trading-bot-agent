@@ -4,6 +4,7 @@ import type { Candle, SetupCandidate } from '@trading-bot/shared-types';
 import type { StructureSnapshot } from '@trading-bot/market-structure';
 import { isFreshSetup } from '@trading-bot/market-structure';
 
+import { evaluateSetup } from './setupEvaluation.js';
 import type {
   HistoricalSetupEntry,
   ScannerTraceEvent,
@@ -198,6 +199,23 @@ export function replayForCandidates(
       tradeableNow: false,
     };
 
+    const baseEvaluation = evaluateSetup({
+      snapshot,
+      candles,
+      direction: entry.direction,
+      breakoutLevel: state.breakoutLevel,
+      breakoutCandleIndex: state.breakoutCandleIndex,
+      entryCandleIndex: i,
+      entryPrice: entry.entryPrice,
+      rrEstimate: rrProjection.rrEstimate,
+      htfTrend: options.htfTrend ?? snapshot.trend,
+      tradeableNow: false,
+    });
+
+    historicalEntry.setupClass = baseEvaluation.setupClass;
+    historicalEntry.tradeability = baseEvaluation.tradeability;
+    historicalEntry.score = baseEvaluation.score;
+
     trace.push({
       symbol: snapshot.symbol,
       state: 'historical_entry_found',
@@ -216,6 +234,25 @@ export function replayForCandidates(
 
     if (!freshSetup) {
       historicalEntry.rejectionReason = 'fresh_rule_failed';
+
+      const rejectedEvaluation = evaluateSetup({
+        snapshot,
+        candles,
+        direction: entry.direction,
+        breakoutLevel: state.breakoutLevel,
+        breakoutCandleIndex: state.breakoutCandleIndex,
+        entryCandleIndex: i,
+        entryPrice: entry.entryPrice,
+        rrEstimate: rrProjection.rrEstimate,
+        htfTrend: options.htfTrend ?? snapshot.trend,
+        tradeableNow: false,
+        rejectionReason: 'fresh_rule_failed',
+      });
+
+      historicalEntry.setupClass = rejectedEvaluation.setupClass;
+      historicalEntry.tradeability = rejectedEvaluation.tradeability;
+      historicalEntry.score = rejectedEvaluation.score;
+
       historicalEntries.push(historicalEntry);
 
       trace.push({
@@ -233,6 +270,25 @@ export function replayForCandidates(
 
     if (rrProjection.rrEstimate < options.minRR) {
       historicalEntry.rejectionReason = 'rr_too_low';
+
+      const lowRrEvaluation = evaluateSetup({
+        snapshot,
+        candles,
+        direction: entry.direction,
+        breakoutLevel: state.breakoutLevel,
+        breakoutCandleIndex: state.breakoutCandleIndex,
+        entryCandleIndex: i,
+        entryPrice: entry.entryPrice,
+        rrEstimate: rrProjection.rrEstimate,
+        htfTrend: options.htfTrend ?? snapshot.trend,
+        tradeableNow: false,
+        rejectionReason: 'rr_too_low',
+      });
+
+      historicalEntry.setupClass = lowRrEvaluation.setupClass;
+      historicalEntry.tradeability = lowRrEvaluation.tradeability;
+      historicalEntry.score = lowRrEvaluation.score;
+
       historicalEntries.push(historicalEntry);
 
       trace.push({
@@ -249,6 +305,24 @@ export function replayForCandidates(
     }
 
     historicalEntry.tradeableNow = true;
+
+    const liveEvaluation = evaluateSetup({
+      snapshot,
+      candles,
+      direction: entry.direction,
+      breakoutLevel: state.breakoutLevel,
+      breakoutCandleIndex: state.breakoutCandleIndex,
+      entryCandleIndex: i,
+      entryPrice: entry.entryPrice,
+      rrEstimate: rrProjection.rrEstimate,
+      htfTrend: options.htfTrend ?? snapshot.trend,
+      tradeableNow: true,
+    });
+
+    historicalEntry.setupClass = liveEvaluation.setupClass;
+    historicalEntry.tradeability = liveEvaluation.tradeability;
+    historicalEntry.score = liveEvaluation.score;
+
     historicalEntries.push(historicalEntry);
 
     const candidateFeatures = [
@@ -256,6 +330,9 @@ export function replayForCandidates(
       'pullback_detected',
       'elbow_entry',
       'fresh_setup',
+      `setup_class:${liveEvaluation.setupClass}`,
+      `tradeability:${liveEvaluation.tradeability}`,
+      `score:${liveEvaluation.score.total}`,
     ];
 
     if (options.allowedDirection) {
@@ -286,7 +363,7 @@ export function replayForCandidates(
       state: 'candidate_emitted',
       candleIndex: i,
       direction: entry.direction,
-      message: `candidate emitted entry=${candidate.entryPrice} stop=${candidate.stopLoss} rr=${candidate.rrEstimate.toFixed(2)} target=${rrProjection.targetPrice ?? 'none'}`,
+      message: `candidate emitted entry=${candidate.entryPrice} stop=${candidate.stopLoss} rr=${candidate.rrEstimate.toFixed(2)} target=${rrProjection.targetPrice ?? 'none'} class=${liveEvaluation.setupClass} score=${liveEvaluation.score.total}`,
     });
 
     state = null;

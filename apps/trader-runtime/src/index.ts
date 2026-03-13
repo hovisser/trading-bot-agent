@@ -238,13 +238,18 @@ async function bootstrap(): Promise<void> {
       -10,
     )) {
       logDebug(
-        `historical-entry ${historicalEntry.symbol}`,
+        `bootstrap historical-entry ${historicalEntry.symbol}`,
         `direction=${historicalEntry.direction}`,
         `entry=${historicalEntry.entryPrice}`,
         `stop=${historicalEntry.stopLoss}`,
         `rr=${historicalEntry.rrEstimate.toFixed(2)}`,
         `target=${historicalEntry.targetPrice ?? 'none'}`,
         `tradeableNow=${historicalEntry.tradeableNow}`,
+        historicalEntry.setupClass ? `class=${historicalEntry.setupClass}` : '',
+        historicalEntry.tradeability
+          ? `tradeability=${historicalEntry.tradeability}`
+          : '',
+        historicalEntry.score ? `score=${historicalEntry.score.total}` : '',
         historicalEntry.rejectionReason
           ? `reason=${historicalEntry.rejectionReason}`
           : '',
@@ -256,11 +261,25 @@ async function bootstrap(): Promise<void> {
     }
 
     for (const candidate of bootstrapScanResult.candidates) {
+      const setupClassFeature = candidate.features.find((x) =>
+        x.startsWith('setup_class:'),
+      );
+      const tradeabilityFeature = candidate.features.find((x) =>
+        x.startsWith('tradeability:'),
+      );
+      const scoreFeature = candidate.features.find((x) =>
+        x.startsWith('score:'),
+      );
+
       logInfo(
         `bootstrap setup candidate ${candidate.symbol} ${candidate.direction}`,
         `entry=${candidate.entryPrice}`,
         `stop=${candidate.stopLoss}`,
         `rr=${candidate.rrEstimate.toFixed(2)}`,
+        `htfTrend=${candidate.htfTrend}`,
+        setupClassFeature ?? '',
+        tradeabilityFeature ?? '',
+        scoreFeature ?? '',
       );
     }
   });
@@ -345,6 +364,11 @@ async function bootstrap(): Promise<void> {
         `rr=${historicalEntry.rrEstimate.toFixed(2)}`,
         `target=${historicalEntry.targetPrice ?? 'none'}`,
         `tradeableNow=${historicalEntry.tradeableNow}`,
+        historicalEntry.setupClass ? `class=${historicalEntry.setupClass}` : '',
+        historicalEntry.tradeability
+          ? `tradeability=${historicalEntry.tradeability}`
+          : '',
+        historicalEntry.score ? `score=${historicalEntry.score.total}` : '',
         historicalEntry.rejectionReason
           ? `reason=${historicalEntry.rejectionReason}`
           : '',
@@ -356,12 +380,25 @@ async function bootstrap(): Promise<void> {
     }
 
     for (const candidate of result.candidates) {
+      const setupClassFeature = candidate.features.find((x) =>
+        x.startsWith('setup_class:'),
+      );
+      const tradeabilityFeature = candidate.features.find((x) =>
+        x.startsWith('tradeability:'),
+      );
+      const scoreFeature = candidate.features.find((x) =>
+        x.startsWith('score:'),
+      );
+
       logInfo(
         `setup candidate ${candidate.symbol} ${candidate.direction}`,
         `entry=${candidate.entryPrice}`,
         `stop=${candidate.stopLoss}`,
         `rr=${candidate.rrEstimate.toFixed(2)}`,
         `htfTrend=${candidate.htfTrend}`,
+        setupClassFeature ?? '',
+        tradeabilityFeature ?? '',
+        scoreFeature ?? '',
       );
     }
   });

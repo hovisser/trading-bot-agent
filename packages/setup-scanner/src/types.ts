@@ -20,6 +20,36 @@ export type RejectionReason =
   | 'fresh_rule_failed'
   | 'rr_too_low';
 
+export type SetupClass =
+  | 'aggressive_continuation'
+  | 'standard_retest'
+  | 'deep_pullback'
+  | 'late_pullback'
+  | 'weak_retest';
+
+export type TradeabilityBand =
+  | 'excellent'
+  | 'tradeable'
+  | 'watchlist'
+  | 'reject';
+
+export interface SetupScoreBreakdown {
+  total: number;
+  htfAlignment: number;
+  breakoutQuality: number;
+  pullbackQuality: number;
+  entryQuality: number;
+  zoneQuality: number;
+  rrQuality: number;
+  freshnessQuality: number;
+}
+
+export interface EvaluatedSetup {
+  setupClass: SetupClass;
+  tradeability: TradeabilityBand;
+  score: SetupScoreBreakdown;
+}
+
 export interface ScannerTraceEvent {
   symbol: string;
   state: SetupLifecycleState;
@@ -48,6 +78,9 @@ export interface HistoricalSetupEntry {
   trendContext: 'up' | 'down' | 'neutral';
   tradeableNow: boolean;
   rejectionReason?: RejectionReason;
+  setupClass?: SetupClass;
+  tradeability?: TradeabilityBand;
+  score?: SetupScoreBreakdown;
 }
 
 export interface ScanResult {
