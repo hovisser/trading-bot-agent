@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
+
 import type { Candle, SetupCandidate } from '@trading-bot/shared-types';
 import type { StructureSnapshot } from '@trading-bot/market-structure';
 import { isFreshSetup } from '@trading-bot/market-structure';
+
 import type {
   HistoricalSetupEntry,
   ScannerTraceEvent,
@@ -17,6 +19,8 @@ export interface ReplayScannerOptions {
   breakoutLookbackCandles: number;
   maxPullbackCandles: number;
   stopBufferPct: number;
+  allowedDirection?: 'long' | 'short' | null;
+  htfTrend?: 'up' | 'down' | 'neutral';
 }
 
 export interface ReplayScanOutput {
@@ -74,22 +78,52 @@ export function replayForCandidates(
       });
 
       if (options.requireTrendAlignment) {
-        // Voor nu alleen harde mismatch blokkeren.
-        // Later vervangen we dit door een echte HTF bias input.
-        const hardMismatch =
-          (breakout.direction === 'long' && snapshot.trend === 'down') ||
-          (breakout.direction === 'short' && snapshot.trend === 'up');
-
-        if (hardMismatch) {
+        if (options.allowedDirection === null) {
           trace.push({
             symbol: snapshot.symbol,
             state: 'invalidated',
             candleIndex: i,
             direction: breakout.direction,
-            message: `trend mismatch for ${breakout.direction}, trend=${snapshot.trend}`,
-            rejectionReason: 'trend_mismatch',
+            message: 'htf neutral, skipping setup',
+            rejectionReason: 'htf_neutral',
           });
+
           continue;
+        }
+
+        if (
+          options.allowedDirection &&
+          breakout.direction !== options.allowedDirection
+        ) {
+          trace.push({
+            symbol: snapshot.symbol,
+            state: 'invalidated',
+            candleIndex: i,
+            direction: breakout.direction,
+            message: `htf bias conflict for ${breakout.direction}, allowed=${options.allowedDirection}`,
+            rejectionReason: 'htf_bias_conflict',
+          });
+
+          continue;
+        }
+
+        if (!options.allowedDirection) {
+          const hardMismatch =
+            (breakout.direction === 'long' && snapshot.trend === 'down') ||
+            (breakout.direction === 'short' && snapshot.trend === 'up');
+
+          if (hardMismatch) {
+            trace.push({
+              symbol: snapshot.symbol,
+              state: 'invalidated',
+              candleIndex: i,
+              direction: breakout.direction,
+              message: `trend mismatch for ${breakout.direction}, trend=${snapshot.trend}`,
+              rejectionReason: 'trend_mismatch',
+            });
+
+            continue;
+          }
         }
       }
 
@@ -160,7 +194,7 @@ export function replayForCandidates(
       rrEstimate: rrProjection.rrEstimate,
       targetPrice: rrProjection.targetPrice,
       detectedAtCandleIndex: i,
-      trendContext: snapshot.trend,
+      trendContext: options.htfTrend ?? snapshot.trend,
       tradeableNow: false,
     };
 
@@ -172,7 +206,6 @@ export function replayForCandidates(
       message: `historical entry found entry=${entry.entryPrice} stop=${entry.stopLoss} rr=${rrProjection.rrEstimate.toFixed(2)}`,
     });
 
-    // Fresh rule pas vanaf candle +2 na entry candle toepassen
     const candlesAfterSetup = candles.slice(i + 2);
 
     const freshSetup = isFreshSetup({
@@ -218,6 +251,17 @@ export function replayForCandidates(
     historicalEntry.tradeableNow = true;
     historicalEntries.push(historicalEntry);
 
+    const candidateFeatures = [
+      'historical_breakout',
+      'pullback_detected',
+      'elbow_entry',
+      'fresh_setup',
+    ];
+
+    if (options.allowedDirection) {
+      candidateFeatures.push('htf_bias_aligned');
+    }
+
     const candidate: SetupCandidate = {
       id: randomUUID(),
       strategyId: options.strategyId,
@@ -228,14 +272,9 @@ export function replayForCandidates(
       detectedAt: Date.now(),
       entryPrice: entry.entryPrice,
       stopLoss: entry.stopLoss,
-      htfTrend: snapshot.trend,
+      htfTrend: options.htfTrend ?? snapshot.trend,
       rrEstimate: rrProjection.rrEstimate,
-      features: [
-        'historical_breakout',
-        'pullback_detected',
-        'elbow_entry',
-        'fresh_setup',
-      ],
+      features: candidateFeatures,
       warnings: [],
       freshSetup: true,
     };
@@ -402,6 +441,7 @@ function projectTargetAndRR(
     }
 
     const fallbackTarget = targets[0];
+
     return {
       targetPrice: fallbackTarget,
       rrEstimate: (fallbackTarget - entryPrice) / risk,
@@ -429,6 +469,7 @@ function projectTargetAndRR(
   }
 
   const fallbackTarget = targets[0];
+
   return {
     targetPrice: fallbackTarget,
     rrEstimate: (entryPrice - fallbackTarget) / risk,

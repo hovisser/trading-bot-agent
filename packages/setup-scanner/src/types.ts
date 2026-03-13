@@ -11,6 +11,8 @@ export type SetupLifecycleState =
 
 export type RejectionReason =
   | 'trend_mismatch'
+  | 'htf_bias_conflict'
+  | 'htf_neutral'
   | 'no_breakout'
   | 'pullback_timeout'
   | 'pullback_not_found'

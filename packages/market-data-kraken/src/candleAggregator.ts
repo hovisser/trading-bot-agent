@@ -1,11 +1,22 @@
-import type { Candle } from '@trading-bot/shared-types';
+import type { Candle, Timeframe } from '@trading-bot/shared-types';
 
-function timeframeToMs(timeframe: '15m'): number {
-  return 15 * 60 * 1000;
+type SupportedTimeframe = '15m' | '1h' | '4h';
+
+function timeframeToMs(timeframe: SupportedTimeframe): number {
+  switch (timeframe) {
+    case '15m':
+      return 15 * 60 * 1000;
+    case '1h':
+      return 60 * 60 * 1000;
+    case '4h':
+      return 4 * 60 * 60 * 1000;
+  }
 }
 
 export class CandleAggregator {
   private candles = new Map<string, Candle>();
+
+  constructor(private readonly timeframe: SupportedTimeframe = '15m') {}
 
   public updateFromTrade(
     symbol: string,
@@ -13,11 +24,10 @@ export class CandleAggregator {
     quantity: number,
     timestamp: number,
   ): Candle {
-    const timeframe = '15m';
-    const bucketSize = timeframeToMs(timeframe);
+    const bucketSize = timeframeToMs(this.timeframe);
     const openTime = Math.floor(timestamp / bucketSize) * bucketSize;
     const closeTime = openTime + bucketSize - 1;
-    const key = `${symbol}:${timeframe}:${openTime}`;
+    const key = `${symbol}:${this.timeframe}:${openTime}`;
 
     const existing = this.candles.get(key);
 
@@ -25,7 +35,7 @@ export class CandleAggregator {
       const candle: Candle = {
         exchange: 'kraken',
         symbol,
-        timeframe,
+        timeframe: this.timeframe as Timeframe,
         openTime,
         closeTime,
         open: price,

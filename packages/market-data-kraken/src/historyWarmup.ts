@@ -22,10 +22,25 @@ type CandleObject = {
 
 type CandleLike = CandleTuple | CandleObject;
 
-function timeframeToResolution(timeframe: '15m'): string {
+function timeframeToResolution(timeframe: '15m' | '1h' | '4h'): string {
   switch (timeframe) {
     case '15m':
       return '15m';
+    case '1h':
+      return '1h';
+    case '4h':
+      return '4h';
+  }
+}
+
+function timeframeToMs(timeframe: '15m' | '1h' | '4h'): number {
+  switch (timeframe) {
+    case '15m':
+      return 15 * 60 * 1000;
+    case '1h':
+      return 60 * 60 * 1000;
+    case '4h':
+      return 4 * 60 * 60 * 1000;
   }
 }
 
@@ -97,10 +112,10 @@ function extractRawCandles(json: unknown): CandleLike[] {
 
 function normalizeCandle(
   symbol: string,
-  timeframe: '15m',
+  timeframe: '15m' | '1h' | '4h',
   item: CandleLike,
 ): Candle | null {
-  const bucketMs = 15 * 60 * 1000;
+  const bucketMs = timeframeToMs(timeframe);
 
   if (Array.isArray(item)) {
     const time = parseTimestamp(item[0]);
@@ -177,6 +192,7 @@ export async function warmupCandlesFromTradeHistory(
   input: WarmupCandlesInput,
 ): Promise<Candle[]> {
   const resolution = timeframeToResolution(input.timeframe);
+
   const url =
     `${input.chartsBaseUrl}/trade/` +
     `${encodeURIComponent(input.symbol)}/` +
@@ -186,7 +202,7 @@ export async function warmupCandlesFromTradeHistory(
 
   if (!response.ok) {
     throw new Error(
-      `Failed to fetch chart candles for ${input.symbol}: ${response.status}`,
+      `Failed to fetch chart candles for ${input.symbol} ${input.timeframe}: ${response.status}`,
     );
   }
 
@@ -202,7 +218,6 @@ export async function warmupCandlesFromTradeHistory(
     .filter((item): item is Candle => item !== null)
     .sort((a, b) => a.openTime - b.openTime);
 
-  // Laat alleen gesloten candles door voor structure warmup
   const closedCandles = candles.filter((candle) => candle.closed);
 
   return closedCandles.slice(-input.limit);

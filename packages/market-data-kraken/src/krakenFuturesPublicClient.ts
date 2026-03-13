@@ -1,12 +1,18 @@
 import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
+
 import type { TradeTick } from '@trading-bot/shared-types';
 import { CandleAggregator } from './candleAggregator.js';
 import type { PublicClientEvents, PublicClientOptions } from './types.js';
 
 export class KrakenFuturesPublicClient extends EventEmitter {
   private ws: WebSocket | null = null;
-  private readonly aggregator = new CandleAggregator();
+
+  private readonly aggregators = [
+    new CandleAggregator('15m'),
+    new CandleAggregator('1h'),
+    new CandleAggregator('4h'),
+  ];
 
   constructor(private readonly options: PublicClientOptions) {
     super();
@@ -116,13 +122,9 @@ export class KrakenFuturesPublicClient extends EventEmitter {
         continue;
       }
 
-      this.aggregator.updateFromTrade(
-        trade.symbol,
-        trade.price,
-        trade.quantity,
-        trade.timestamp,
-      );
+      this.updateAggregators(trade);
     }
+
     const firstTrade = message.trades[0];
     const lastTrade = message.trades[message.trades.length - 1];
 
@@ -130,6 +132,7 @@ export class KrakenFuturesPublicClient extends EventEmitter {
       'status',
       `debug:snapshot_range:${symbol}:first=${JSON.stringify(firstTrade)}:last=${JSON.stringify(lastTrade)}`,
     );
+
     this.flushClosedCandles();
     this.emit('status', `snapshot_complete:${symbol}`);
   }
@@ -199,23 +202,31 @@ export class KrakenFuturesPublicClient extends EventEmitter {
 
   private emitTrade(trade: TradeTick): void {
     this.emit('trade', trade);
+    this.updateAggregators(trade);
+  }
 
-    const candle = this.aggregator.updateFromTrade(
-      trade.symbol,
-      trade.price,
-      trade.quantity,
-      trade.timestamp,
-    );
+  private updateAggregators(trade: TradeTick): void {
+    for (const aggregator of this.aggregators) {
+      const candle = aggregator.updateFromTrade(
+        trade.symbol,
+        trade.price,
+        trade.quantity,
+        trade.timestamp,
+      );
 
-    this.emit('candle', candle);
+      this.emit('candle', candle);
+    }
   }
 
   private flushClosedCandles(): void {
     const now = Date.now();
-    const closedCandles = this.aggregator.markClosedCandles(now);
 
-    for (const closed of closedCandles) {
-      this.emit('candle', closed);
+    for (const aggregator of this.aggregators) {
+      const closedCandles = aggregator.markClosedCandles(now);
+
+      for (const closed of closedCandles) {
+        this.emit('candle', closed);
+      }
     }
   }
 

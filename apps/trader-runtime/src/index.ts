@@ -1,4 +1,5 @@
 import 'dotenv/config';
+
 import {
   KrakenFuturesPublicClient,
   buildKrakenConfig,
@@ -11,8 +12,58 @@ import {
   defaultScalpStrategy,
   validateScalpStrategy,
 } from '@trading-bot/strategy-schemas';
+
 import { logDebug, logError, logInfo, logWarn } from './logger.js';
-import { stat } from 'node:fs';
+
+type TrendDirection = 'up' | 'down' | 'neutral';
+type WarmupTimeframe = '15m' | '1h' | '4h';
+
+function deriveMtfBias(
+  trend4h: TrendDirection,
+  trend1h: TrendDirection,
+): {
+  allowedDirection: 'long' | 'short' | null;
+  htfTrend: TrendDirection;
+  reason: string;
+} {
+  if (trend4h === 'up') {
+    if (trend1h === 'down') {
+      return {
+        allowedDirection: null,
+        htfTrend: 'neutral',
+        reason: '4h_up_1h_conflict',
+      };
+    }
+
+    return {
+      allowedDirection: 'long',
+      htfTrend: 'up',
+      reason: trend1h === 'up' ? '4h_up_1h_confirm' : '4h_up_1h_neutral',
+    };
+  }
+
+  if (trend4h === 'down') {
+    if (trend1h === 'up') {
+      return {
+        allowedDirection: null,
+        htfTrend: 'neutral',
+        reason: '4h_down_1h_conflict',
+      };
+    }
+
+    return {
+      allowedDirection: 'short',
+      htfTrend: 'down',
+      reason: trend1h === 'down' ? '4h_down_1h_confirm' : '4h_down_1h_neutral',
+    };
+  }
+
+  return {
+    allowedDirection: null,
+    htfTrend: 'neutral',
+    reason: '4h_neutral',
+  };
+}
 
 async function bootstrap(): Promise<void> {
   const strategy = validateScalpStrategy(defaultScalpStrategy);
@@ -49,34 +100,47 @@ async function bootstrap(): Promise<void> {
   const marketSymbols = markets.map((m) => m.symbol);
   const snapshotCompleted = new Set<string>();
 
+  const warmupPlan: Array<{ timeframe: WarmupTimeframe; limit: number }> = [
+    { timeframe: '15m', limit: 500 },
+    { timeframe: '1h', limit: 300 },
+    { timeframe: '4h', limit: 200 },
+  ];
+
   for (const market of markets) {
-    try {
-      const candles = await warmupCandlesFromTradeHistory({
-        chartsBaseUrl: config.chartsBaseUrl,
-        symbol: market.symbol,
-        timeframe: '15m',
-        limit: 500,
-      });
+    for (const plan of warmupPlan) {
+      try {
+        const candles = await warmupCandlesFromTradeHistory({
+          chartsBaseUrl: config.chartsBaseUrl,
+          symbol: market.symbol,
+          timeframe: plan.timeframe,
+          limit: plan.limit,
+        });
 
-      if (!candles.length) {
-        logWarn(`warmup returned no candles for ${market.symbol}`);
-        continue;
+        if (!candles.length) {
+          logWarn(
+            `warmup returned no candles for ${market.symbol} ${plan.timeframe}`,
+          );
+          continue;
+        }
+
+        for (const candle of candles) {
+          structureEngine.pushCandle(candle);
+        }
+
+        const snapshot = structureEngine.getSnapshot(
+          market.symbol,
+          plan.timeframe,
+        );
+
+        logInfo(
+          `warmup complete for ${market.symbol} ${plan.timeframe}`,
+          `candles=${snapshot.candles.length}`,
+          `swings=${snapshot.swings.length}`,
+          `trend=${snapshot.trend}`,
+        );
+      } catch (error) {
+        logWarn(`warmup failed for ${market.symbol} ${plan.timeframe}`, error);
       }
-
-      for (const candle of candles) {
-        structureEngine.pushCandle(candle);
-      }
-
-      const snapshot = structureEngine.getSnapshot(market.symbol, '15m');
-
-      logInfo(
-        `warmup complete for ${market.symbol}`,
-        `candles=${snapshot.candles.length}`,
-        `swings=${snapshot.swings.length}`,
-        `trend=${snapshot.trend}`,
-      );
-    } catch (error) {
-      logWarn(`warmup failed for ${market.symbol}`, error);
     }
   }
 
@@ -99,18 +163,30 @@ async function bootstrap(): Promise<void> {
     const symbol = status.replace('snapshot_complete:', '');
     snapshotCompleted.add(symbol);
 
-    const snapshot = structureEngine.getSnapshot(symbol, '15m');
+    const snapshot15m = structureEngine.getSnapshot(symbol, '15m');
+    const snapshot1h = structureEngine.getSnapshot(symbol, '1h');
+    const snapshot4h = structureEngine.getSnapshot(symbol, '4h');
+
+    const mtfBias = deriveMtfBias(snapshot4h.trend, snapshot1h.trend);
 
     logInfo(
       `bootstrap summary for ${symbol}`,
-      `candles=${snapshot.candles.length}`,
-      `swings=${snapshot.swings.length}`,
-      `trend=${snapshot.trend}`,
+      `15m candles=${snapshot15m.candles.length}`,
+      `15m swings=${snapshot15m.swings.length}`,
+      `15m trend=${snapshot15m.trend}`,
+    );
+
+    logInfo(
+      `bootstrap htf for ${symbol}`,
+      `1h trend=${snapshot1h.trend}`,
+      `4h trend=${snapshot4h.trend}`,
+      `bias=${mtfBias.allowedDirection ?? 'neutral'}`,
+      `reason=${mtfBias.reason}`,
     );
 
     logInfo(
       `bootstrap structure for ${symbol}`,
-      snapshot.labeledStructure
+      snapshot15m.labeledStructure
         .slice(-6)
         .map((x) => `${x.label}@${x.price}`)
         .join(', ') || 'none',
@@ -118,13 +194,16 @@ async function bootstrap(): Promise<void> {
 
     logInfo(
       `bootstrap zones for ${symbol}`,
-      snapshot.zones
+      snapshot15m.zones
         .slice(-4)
         .map((z) => `${z.type}[${z.from.toFixed(2)}-${z.to.toFixed(2)}]`)
         .join(', ') || 'none',
     );
 
-    const bootstrapScanResult = scanner.scan(snapshot);
+    const bootstrapScanResult = scanner.scan(snapshot15m, {
+      trend1h: snapshot1h.trend,
+      trend4h: snapshot4h.trend,
+    });
 
     for (const traceEvent of bootstrapScanResult.trace.slice(-20)) {
       logDebug(
@@ -169,11 +248,8 @@ async function bootstrap(): Promise<void> {
     }
   });
 
-  client.on('trade', (trade) => {
-    // too noisy for now, can re-enable if needed for debugging specific issues
-    /*logDebug(
-      `trade ${trade.symbol} price=${trade.price} qty=${trade.quantity} side=${trade.side ?? 'unknown'}`,
-    );*/
+  client.on('trade', (_trade) => {
+    // too noisy for now
   });
 
   client.on('candle', (candle) => {
@@ -187,11 +263,31 @@ async function bootstrap(): Promise<void> {
       return;
     }
 
+    if (snapshot.timeframe !== '15m') {
+      logInfo(
+        `structure ${snapshot.symbol} ${snapshot.timeframe} trend=${snapshot.trend}`,
+      );
+      return;
+    }
+
+    const snapshot1h = structureEngine.getSnapshot(snapshot.symbol, '1h');
+    const snapshot4h = structureEngine.getSnapshot(snapshot.symbol, '4h');
+    const mtfBias = deriveMtfBias(snapshot4h.trend, snapshot1h.trend);
+
     const recentStructure = snapshot.labeledStructure.slice(-6);
     const recentZones = snapshot.zones.slice(-4);
 
     logInfo(
       `structure ${snapshot.symbol} ${snapshot.timeframe} trend=${snapshot.trend}`,
+    );
+
+    logInfo(
+      `mtf-context ${snapshot.symbol}`,
+      `4h=${snapshot4h.trend}`,
+      `1h=${snapshot1h.trend}`,
+      `15m=${snapshot.trend}`,
+      `bias=${mtfBias.allowedDirection ?? 'neutral'}`,
+      `reason=${mtfBias.reason}`,
     );
 
     logInfo(
@@ -206,7 +302,10 @@ async function bootstrap(): Promise<void> {
         .join(', ') || 'none',
     );
 
-    const result = scanner.scan(snapshot);
+    const result = scanner.scan(snapshot, {
+      trend1h: snapshot1h.trend,
+      trend4h: snapshot4h.trend,
+    });
 
     for (const traceEvent of result.trace.slice(-12)) {
       logDebug(
@@ -245,6 +344,7 @@ async function bootstrap(): Promise<void> {
         `entry=${candidate.entryPrice}`,
         `stop=${candidate.stopLoss}`,
         `rr=${candidate.rrEstimate.toFixed(2)}`,
+        `htfTrend=${candidate.htfTrend}`,
       );
     }
   });
