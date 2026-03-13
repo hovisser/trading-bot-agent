@@ -58,10 +58,27 @@ function deriveMtfBias(
     };
   }
 
+  // 4h neutral fallback to 1h
+  if (trend1h === 'up') {
+    return {
+      allowedDirection: 'long',
+      htfTrend: 'up',
+      reason: '4h_neutral_1h_up',
+    };
+  }
+
+  if (trend1h === 'down') {
+    return {
+      allowedDirection: 'short',
+      htfTrend: 'down',
+      reason: '4h_neutral_1h_down',
+    };
+  }
+
   return {
     allowedDirection: null,
     htfTrend: 'neutral',
-    reason: '4h_neutral',
+    reason: '4h_neutral_1h_neutral',
   };
 }
 
