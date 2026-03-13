@@ -2,11 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Candle, SetupCandidate } from '@trading-bot/shared-types';
 import { isFreshSetup } from '@trading-bot/market-structure';
 import type { StructureSnapshot } from '@trading-bot/market-structure';
-import type {
-  RejectionReason,
-  ScannerTraceEvent,
-  StatefulSetupState,
-} from './types.js';
+import type { ScannerTraceEvent, StatefulSetupState } from './types.js';
 
 export interface ReplayScannerOptions {
   strategyId: string;
@@ -71,25 +67,17 @@ export function replayForCandidates(
       });
 
       if (options.requireTrendAlignment) {
-        if (breakout.direction === 'long' && snapshot.trend !== 'up') {
-          trace.push({
-            symbol: snapshot.symbol,
-            state: 'invalidated',
-            candleIndex: i,
-            direction: breakout.direction,
-            message: `trend mismatch for long, trend=${snapshot.trend}`,
-            rejectionReason: 'trend_mismatch',
-          });
-          continue;
-        }
+        const hardMismatch =
+          (breakout.direction === 'long' && snapshot.trend === 'down') ||
+          (breakout.direction === 'short' && snapshot.trend === 'up');
 
-        if (breakout.direction === 'short' && snapshot.trend !== 'down') {
+        if (hardMismatch) {
           trace.push({
             symbol: snapshot.symbol,
             state: 'invalidated',
             candleIndex: i,
             direction: breakout.direction,
-            message: `trend mismatch for short, trend=${snapshot.trend}`,
+            message: `trend mismatch for ${breakout.direction}, trend=${snapshot.trend}`,
             rejectionReason: 'trend_mismatch',
           });
           continue;
@@ -147,7 +135,17 @@ export function replayForCandidates(
       message: `entry confirmed at ${entry.entryPrice}`,
     });
 
-    const candlesAfterSetup = candles.slice(i + 1);
+    trace.push({
+      symbol: snapshot.symbol,
+      state: 'historical_entry_found',
+      candleIndex: i,
+      direction: entry.direction,
+      message: `historical entry found entry=${entry.entryPrice} stop=${entry.stopLoss}`,
+    });
+
+    // Fresh rule: sla de eerstvolgende candle na de entry candle over.
+    // Dus pas vanaf i + 2 beoordelen.
+    const candlesAfterSetup = candles.slice(i + 2);
 
     const freshSetup = isFreshSetup({
       direction: entry.direction,
@@ -161,7 +159,7 @@ export function replayForCandidates(
         state: 'invalidated',
         candleIndex: i,
         direction: entry.direction,
-        message: 'fresh setup check failed',
+        message: 'fresh setup check failed (starting from candle +2)',
         rejectionReason: 'fresh_rule_failed',
       });
 
@@ -238,7 +236,7 @@ export function replayForCandidates(
     trace.push({
       symbol: snapshot.symbol,
       state: 'invalidated',
-      message: 'breakouts were found but none produced a valid candidate',
+      message: 'breakouts were found but none produced a valid fresh candidate',
       rejectionReason: 'entry_not_confirmed',
     });
   }

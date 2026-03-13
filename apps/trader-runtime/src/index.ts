@@ -42,7 +42,7 @@ async function bootstrap(): Promise<void> {
     timeframe: '15m',
     replayLookbackCandles: 300,
     breakoutLookbackCandles: 20,
-    maxPullbackCandles: 6,
+    maxPullbackCandles: 10,
     stopBufferPct: strategy.stopLoss.bufferPct,
   });
 
@@ -126,10 +126,14 @@ async function bootstrap(): Promise<void> {
 
     const bootstrapScanResult = scanner.scan(snapshot);
 
-    for (const traceEvent of bootstrapScanResult.trace.slice(-12)) {
+    for (const traceEvent of bootstrapScanResult.trace.slice(-20)) {
       logDebug(
         `scanner-trace ${traceEvent.symbol}`,
         `state=${traceEvent.state}`,
+        traceEvent.direction ? `direction=${traceEvent.direction}` : '',
+        traceEvent.rejectionReason
+          ? `reason=${traceEvent.rejectionReason}`
+          : '',
         traceEvent.message,
       );
     }
@@ -187,10 +191,14 @@ async function bootstrap(): Promise<void> {
 
     const result = scanner.scan(snapshot);
 
-    for (const traceEvent of result.trace.slice(-8)) {
+    for (const traceEvent of result.trace.slice(-12)) {
       logDebug(
         `scanner-trace ${traceEvent.symbol}`,
         `state=${traceEvent.state}`,
+        traceEvent.direction ? `direction=${traceEvent.direction}` : '',
+        traceEvent.rejectionReason
+          ? `reason=${traceEvent.rejectionReason}`
+          : '',
         traceEvent.message,
       );
     }

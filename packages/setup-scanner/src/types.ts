@@ -5,6 +5,7 @@ export type SetupLifecycleState =
   | 'breakout_detected'
   | 'waiting_for_pullback'
   | 'entry_ready'
+  | 'historical_entry_found'
   | 'candidate_emitted'
   | 'invalidated';
 
