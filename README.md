@@ -34,13 +34,3 @@ npm run dev
 ## Docker
 
 docker compose up --build
-
-### 4. Eén nette housekeeping commit
-
-Bijvoorbeeld:
-
-```bash
-git add .
-git commit -m "Clean up debug output and refresh README"
-git push
-```

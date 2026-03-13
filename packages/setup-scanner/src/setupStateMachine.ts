@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import type { Candle, SetupCandidate } from '@trading-bot/shared-types';
 import { isFreshSetup } from '@trading-bot/market-structure';
 import type { StructureSnapshot } from '@trading-bot/market-structure';
-import type { BreakoutState } from './types.js';
+import type {
+  RejectionReason,
+  ScannerTraceEvent,
+  StatefulSetupState,
+} from './types.js';
 
 export interface ReplayScannerOptions {
   strategyId: string;
@@ -15,18 +19,32 @@ export interface ReplayScannerOptions {
   stopBufferPct: number;
 }
 
+export interface ReplayScanOutput {
+  candidates: SetupCandidate[];
+  trace: ScannerTraceEvent[];
+}
+
 export function replayForCandidates(
   snapshot: StructureSnapshot,
   options: ReplayScannerOptions,
-): SetupCandidate[] {
+): ReplayScanOutput {
   const candidates: SetupCandidate[] = [];
+  const trace: ScannerTraceEvent[] = [];
 
   const candles = snapshot.candles.slice(-options.replayLookbackCandles);
   if (candles.length < options.breakoutLookbackCandles + 5) {
-    return candidates;
+    trace.push({
+      symbol: snapshot.symbol,
+      state: 'idle',
+      message: `not enough candles for replay: ${candles.length}`,
+      rejectionReason: 'no_breakout',
+    });
+
+    return { candidates, trace };
   }
 
-  let state: BreakoutState | null = null;
+  let state: StatefulSetupState | null = null;
+  let breakoutSeen = false;
 
   for (let i = options.breakoutLookbackCandles; i < candles.length; i++) {
     const current = candles[i];
@@ -42,12 +60,38 @@ export function replayForCandidates(
         continue;
       }
 
+      breakoutSeen = true;
+
+      trace.push({
+        symbol: snapshot.symbol,
+        state: 'breakout_detected',
+        candleIndex: i,
+        direction: breakout.direction,
+        message: `breakout detected at level=${breakout.breakoutLevel}`,
+      });
+
       if (options.requireTrendAlignment) {
         if (breakout.direction === 'long' && snapshot.trend !== 'up') {
+          trace.push({
+            symbol: snapshot.symbol,
+            state: 'invalidated',
+            candleIndex: i,
+            direction: breakout.direction,
+            message: `trend mismatch for long, trend=${snapshot.trend}`,
+            rejectionReason: 'trend_mismatch',
+          });
           continue;
         }
 
         if (breakout.direction === 'short' && snapshot.trend !== 'down') {
+          trace.push({
+            symbol: snapshot.symbol,
+            state: 'invalidated',
+            candleIndex: i,
+            direction: breakout.direction,
+            message: `trend mismatch for short, trend=${snapshot.trend}`,
+            rejectionReason: 'trend_mismatch',
+          });
           continue;
         }
       }
@@ -57,14 +101,30 @@ export function replayForCandidates(
         direction: breakout.direction,
         breakoutLevel: breakout.breakoutLevel,
         breakoutCandleIndex: i,
-        breakoutCandle: current,
         expiresAtCandleIndex: i + options.maxPullbackCandles,
       };
+
+      trace.push({
+        symbol: snapshot.symbol,
+        state: 'waiting_for_pullback',
+        candleIndex: i,
+        direction: breakout.direction,
+        message: `waiting for pullback until candle ${state.expiresAtCandleIndex}`,
+      });
 
       continue;
     }
 
     if (i > state.expiresAtCandleIndex) {
+      trace.push({
+        symbol: snapshot.symbol,
+        state: 'invalidated',
+        candleIndex: i,
+        direction: state.direction,
+        message: 'pullback timeout',
+        rejectionReason: 'pullback_timeout',
+      });
+
       state = null;
       continue;
     }
@@ -79,6 +139,14 @@ export function replayForCandidates(
       continue;
     }
 
+    trace.push({
+      symbol: snapshot.symbol,
+      state: 'entry_ready',
+      candleIndex: i,
+      direction: entry.direction,
+      message: `entry confirmed at ${entry.entryPrice}`,
+    });
+
     const candlesAfterSetup = candles.slice(i + 1);
 
     const freshSetup = isFreshSetup({
@@ -88,6 +156,15 @@ export function replayForCandidates(
     });
 
     if (!freshSetup) {
+      trace.push({
+        symbol: snapshot.symbol,
+        state: 'invalidated',
+        candleIndex: i,
+        direction: entry.direction,
+        message: 'fresh setup check failed',
+        rejectionReason: 'fresh_rule_failed',
+      });
+
       state = null;
       continue;
     }
@@ -100,11 +177,20 @@ export function replayForCandidates(
     );
 
     if (rrEstimate < options.minRR) {
+      trace.push({
+        symbol: snapshot.symbol,
+        state: 'invalidated',
+        candleIndex: i,
+        direction: entry.direction,
+        message: `rr too low: ${rrEstimate.toFixed(2)}`,
+        rejectionReason: 'rr_too_low',
+      });
+
       state = null;
       continue;
     }
 
-    candidates.push({
+    const candidate: SetupCandidate = {
       id: randomUUID(),
       strategyId: options.strategyId,
       exchange: 'kraken',
@@ -124,12 +210,43 @@ export function replayForCandidates(
       ],
       warnings: [],
       freshSetup: true,
+    };
+
+    candidates.push(candidate);
+
+    trace.push({
+      symbol: snapshot.symbol,
+      state: 'candidate_emitted',
+      candleIndex: i,
+      direction: entry.direction,
+      message: `candidate emitted entry=${candidate.entryPrice} stop=${candidate.stopLoss} rr=${candidate.rrEstimate.toFixed(2)}`,
     });
 
     state = null;
   }
 
-  return dedupeCandidates(candidates);
+  if (!breakoutSeen) {
+    trace.push({
+      symbol: snapshot.symbol,
+      state: 'idle',
+      message: 'no breakout found in replay window',
+      rejectionReason: 'no_breakout',
+    });
+  }
+
+  if (breakoutSeen && candidates.length === 0) {
+    trace.push({
+      symbol: snapshot.symbol,
+      state: 'invalidated',
+      message: 'breakouts were found but none produced a valid candidate',
+      rejectionReason: 'entry_not_confirmed',
+    });
+  }
+
+  return {
+    candidates: dedupeCandidates(candidates),
+    trace,
+  };
 }
 
 function detectBreakoutFromHistory(
@@ -147,14 +264,23 @@ function detectBreakoutFromHistory(
   const previousHigh = Math.max(...previousWindow.map((candle) => candle.high));
   const previousLow = Math.min(...previousWindow.map((candle) => candle.low));
 
-  if (current.close > previousHigh) {
+  const candleBody = Math.abs(current.close - current.open);
+  const candleRange = Math.abs(current.high - current.low);
+
+  if (candleRange <= 0) {
+    return null;
+  }
+
+  const bodyStrength = candleBody / candleRange;
+
+  if (current.close > previousHigh && bodyStrength >= 0.4) {
     return {
       direction: 'long',
       breakoutLevel: previousHigh,
     };
   }
 
-  if (current.close < previousLow) {
+  if (current.close < previousLow && bodyStrength >= 0.4) {
     return {
       direction: 'short',
       breakoutLevel: previousLow,
@@ -166,7 +292,7 @@ function detectBreakoutFromHistory(
 
 function detectEntryFromPullback(
   candle: Candle,
-  state: BreakoutState,
+  state: StatefulSetupState,
   stopBufferPct: number,
 ): {
   direction: 'long' | 'short';

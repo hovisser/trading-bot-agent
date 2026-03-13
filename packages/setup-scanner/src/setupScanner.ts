@@ -18,7 +18,7 @@ export class SetupScanner {
   constructor(private readonly options: SetupScannerOptions) {}
 
   public scan(snapshot: StructureSnapshot): ScanResult {
-    const candidates: SetupCandidate[] = replayForCandidates(snapshot, {
+    const replay = replayForCandidates(snapshot, {
       strategyId: this.options.strategyId,
       minRR: this.options.minRR,
       requireTrendAlignment: this.options.requireTrendAlignment,
@@ -29,22 +29,13 @@ export class SetupScanner {
       stopBufferPct: this.options.stopBufferPct,
     });
 
-    if (process.env.DEBUG === 'true' && candidates.length === 0) {
-      console.log('[scanner]', snapshot.symbol, 'no candidates after replay');
-    }
-
-    if (process.env.DEBUG === 'true' && candidates.length > 0) {
-      console.log(
-        '[scanner]',
-        snapshot.symbol,
-        'candidates found',
-        candidates.length,
-      );
-    }
+    const candidates: SetupCandidate[] = replay.candidates;
+    const trace = replay.trace;
 
     return {
       snapshot,
       candidates,
+      trace,
     };
   }
 }

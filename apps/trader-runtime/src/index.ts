@@ -125,6 +125,15 @@ async function bootstrap(): Promise<void> {
     );
 
     const bootstrapScanResult = scanner.scan(snapshot);
+
+    for (const traceEvent of bootstrapScanResult.trace.slice(-12)) {
+      logDebug(
+        `scanner-trace ${traceEvent.symbol}`,
+        `state=${traceEvent.state}`,
+        traceEvent.message,
+      );
+    }
+
     if (bootstrapScanResult.candidates.length === 0) {
       logDebug(`scanner ${symbol} no candidates on bootstrap`);
     }
@@ -140,9 +149,10 @@ async function bootstrap(): Promise<void> {
   });
 
   client.on('trade', (trade) => {
-    logDebug(
+    // too noisy for now, can re-enable if needed for debugging specific issues
+    /*logDebug(
       `trade ${trade.symbol} price=${trade.price} qty=${trade.quantity} side=${trade.side ?? 'unknown'}`,
-    );
+    );*/
   });
 
   client.on('candle', (candle) => {
@@ -176,6 +186,14 @@ async function bootstrap(): Promise<void> {
     );
 
     const result = scanner.scan(snapshot);
+
+    for (const traceEvent of result.trace.slice(-8)) {
+      logDebug(
+        `scanner-trace ${traceEvent.symbol}`,
+        `state=${traceEvent.state}`,
+        traceEvent.message,
+      );
+    }
 
     if (result.candidates.length === 0) {
       logDebug(`scanner ${snapshot.symbol} no candidates`);
